@@ -10,11 +10,31 @@
 .sidebar-header {
   padding: 16px;
   border-bottom: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.sidebar-header h1 {
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.sidebar-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+}
+
+.sidebar-title {
   font-size: 18px;
-  margin: 0 0 12px 0;
+  font-weight: 700;
+  margin: 0;
   color: #333;
 }
 

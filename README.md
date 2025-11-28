@@ -38,9 +38,24 @@ Create a `.env` file in the project root:
 
 ```bash
 OPENROUTER_API_KEY=sk-or-v1-...
+CORS_ALLOW_ORIGINS=https://your-frontend.example.com
 ```
 
 Get your API key at [openrouter.ai](https://openrouter.ai/). Make sure to purchase the credits you need, or sign up for automatic top up.
+
+### 3. Configure Ports (Optional)
+
+You can override the default ports (backend `8001`, frontend `5173`) when running locally or via Docker:
+
+- Local start script: set env vars before `./start.sh`, e.g. `BACKEND_PORT=9000 FRONTEND_PORT=3000 ./start.sh`
+- Docker Compose: set the same env vars for host bindings, e.g. `BACKEND_PORT=9000 FRONTEND_PORT=3000 docker compose up`
+- Frontend → backend URL: set `VITE_API_BASE` if you run the backend on a non-default origin (defaults to `http://localhost:${BACKEND_PORT}`), e.g. `VITE_API_BASE=http://localhost:9000`
+
+### 4. Host Under a Subpath (Optional)
+
+To serve the UI at a URL postfix like `https://arteus.us/council`, set `BASE_URL=/council/` (or `VITE_BASE_PATH=/council/`) before building or running the frontend. The backend automatically reads the same value (or an explicit `BACKEND_ROOT_PATH=/council`) and exposes every route under `/council/...`.
+
+If the API lives on a different origin (e.g. `https://api.arteus.us/council`), set `VITE_API_BASE=https://api.arteus.us/council` so the browser talks to the correct host while keeping the UI at `https://arteus.us/council`.
 
 ### 3. Configure Models (Optional)
 

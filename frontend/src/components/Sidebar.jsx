@@ -6,19 +6,27 @@ export default function Sidebar({
   currentConversationId,
   onSelectConversation,
   onNewConversation,
+  t,
 }) {
   return (
     <div className="sidebar">
       <div className="sidebar-header">
-        <h1>LLM Council</h1>
+        <div className="sidebar-brand">
+          <img
+            className="sidebar-logo"
+            src="https://framerusercontent.com/images/G4MFpJVGo4QKdInsGAegy907Em4.png"
+            alt="Arteus Council logo"
+          />
+          <div className="sidebar-title">Arteus Council</div>
+        </div>
         <button className="new-conversation-btn" onClick={onNewConversation}>
-          + New Conversation
+          + {t('newConversation')}
         </button>
       </div>
 
       <div className="conversation-list">
         {conversations.length === 0 ? (
-          <div className="no-conversations">No conversations yet</div>
+          <div className="no-conversations">{t('noConversations')}</div>
         ) : (
           conversations.map((conv) => (
             <div

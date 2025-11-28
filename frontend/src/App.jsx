@@ -1,18 +1,63 @@
 import { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
+import LanguageSwitcher from './components/LanguageSwitcher';
 import { api } from './api';
+import { translate, supportedLanguages } from './i18n';
 import './App.css';
+
+const normalizeLang = (code) => {
+  if (!code) return 'en';
+  const lower = code.toLowerCase();
+  if (lower.startsWith('ru')) return 'ru';
+  if (lower.startsWith('el') || lower.startsWith('gr')) return 'el';
+  return 'en';
+};
 
 function App() {
   const [conversations, setConversations] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [currentConversation, setCurrentConversation] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [availableModels, setAvailableModels] = useState([]);
+  const [selectedModels, setSelectedModels] = useState([]);
+  const [chairmanModel, setChairmanModel] = useState('');
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+  const logoUrl = 'https://framerusercontent.com/images/G4MFpJVGo4QKdInsGAegy907Em4.png';
+  const [language, setLanguage] = useState('en');
+
+  useEffect(() => {
+    try {
+      const savedLang = window.sessionStorage.getItem('arteusLang');
+      if (savedLang) {
+        setLanguage(normalizeLang(savedLang));
+        return;
+      }
+      const navLang = navigator.language || (navigator.languages || [])[0];
+      const detected = normalizeLang(navLang);
+      setLanguage(detected);
+      window.sessionStorage.setItem('arteusLang', detected);
+    } catch (e) {
+      console.warn('Language load failed', e);
+    }
+  }, []);
+
+  const setLanguageSafe = (code) => {
+    const normalized = normalizeLang(code);
+    setLanguage(normalized);
+    try {
+      window.sessionStorage.setItem('arteusLang', normalized);
+    } catch (e) {
+      console.warn('Language save failed', e);
+    }
+  };
+
+  const t = (key) => translate(language, key);
 
   // Load conversations on mount
   useEffect(() => {
     loadConversations();
+    loadModels();
   }, []);
 
   // Load conversation details when selected
@@ -28,6 +73,36 @@ function App() {
       setConversations(convs);
     } catch (error) {
       console.error('Failed to load conversations:', error);
+    }
+  };
+
+  const loadModels = async () => {
+    try {
+      const data = await api.listModels();
+      const councilList = data.council_models || [];
+      setAvailableModels(councilList);
+      const defaultPreferred =
+        data.default_preferred_models || [
+          'openai/gpt-5.1',
+          'anthropic/claude-sonnet-4.5',
+          'google/gemini-3-pro-preview',
+        ];
+      const defaultSelection = councilList.filter((m) =>
+        defaultPreferred.includes(m)
+      );
+      setSelectedModels(
+        defaultSelection.length ? defaultSelection : councilList.slice(0, 3)
+      );
+      const chairmanCandidate =
+        data.chairman_model ||
+        defaultSelection[0] ||
+        councilList[0] ||
+        '';
+      setChairmanModel(chairmanCandidate);
+    } catch (error) {
+      console.error('Failed to load models:', error);
+    } finally {
+      setModelsLoaded(true);
     }
   };
 
@@ -57,8 +132,41 @@ function App() {
     setCurrentConversationId(id);
   };
 
+  const toggleModelSelection = (model) => {
+    setSelectedModels((prev) =>
+      prev.includes(model)
+        ? prev.filter((m) => m !== model)
+        : [...prev, model]
+    );
+  };
+
+  const resetSelectedModels = () => {
+    setSelectedModels(availableModels);
+  };
+
+  const notifyJobComplete = (titleText, bodyText) => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    const show = () => {
+      // Avoid noisy notifications when the tab is active.
+      if (document.hasFocus()) return;
+      try {
+        new Notification(titleText, { body: bodyText, icon: logoUrl });
+      } catch (e) {
+        console.warn('Notification failed:', e);
+      }
+    };
+    if (Notification.permission === 'granted') {
+      show();
+    } else if (Notification.permission === 'default') {
+      Notification.requestPermission().then((permission) => {
+        if (permission === 'granted') show();
+      });
+    }
+  };
+
   const handleSendMessage = async (content) => {
     if (!currentConversationId) return;
+    if (!selectedModels || selectedModels.length === 0) return;
 
     setIsLoading(true);
     try {
@@ -90,7 +198,13 @@ function App() {
       }));
 
       // Send message with streaming
-      await api.sendMessageStream(currentConversationId, content, (eventType, event) => {
+      await api.sendMessageStream(
+        currentConversationId,
+        content,
+        selectedModels,
+        chairmanModel,
+        language,
+        (eventType, event) => {
         switch (eventType) {
           case 'stage1_start':
             setCurrentConversation((prev) => {
@@ -159,6 +273,10 @@ function App() {
             // Stream complete, reload conversations list
             loadConversations();
             setIsLoading(false);
+            notifyJobComplete(
+              t('jobFinishedTitle'),
+              t('jobFinishedBody')
+            );
             break;
 
           case 'error':
@@ -169,7 +287,8 @@ function App() {
           default:
             console.log('Unknown event type:', eventType);
         }
-      });
+        }
+      );
     } catch (error) {
       console.error('Failed to send message:', error);
       // Remove optimistic messages on error
@@ -183,16 +302,30 @@ function App() {
 
   return (
     <div className="app">
+      <LanguageSwitcher
+        language={language}
+        onChangeLanguage={setLanguageSafe}
+        languages={supportedLanguages}
+      />
       <Sidebar
         conversations={conversations}
         currentConversationId={currentConversationId}
         onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewConversation}
+        t={t}
       />
       <ChatInterface
         conversation={currentConversation}
         onSendMessage={handleSendMessage}
         isLoading={isLoading}
+        availableModels={availableModels}
+        selectedModels={selectedModels}
+        onToggleModel={toggleModelSelection}
+        onResetModels={resetSelectedModels}
+        chairmanModel={chairmanModel}
+        onSelectChairman={setChairmanModel}
+        modelsLoaded={modelsLoaded}
+        t={t}
       />
     </div>
   );
