@@ -192,3 +192,43 @@ def update_conversation_title(session_id: str, conversation_id: str, title: str)
 
     conversation["title"] = title
     save_conversation(session_id, conversation)
+
+
+def delete_conversation(session_id: str, conversation_id: str) -> bool:
+    """
+    Delete a conversation.
+
+    Args:
+        session_id: Browser session identifier
+        conversation_id: Conversation identifier
+
+    Returns:
+        True if deleted, False if not found
+    """
+    path = get_conversation_path(session_id, conversation_id)
+    if not os.path.exists(path):
+        return False
+    os.remove(path)
+    return True
+
+
+def delete_all_conversations(session_id: str) -> int:
+    """
+    Delete all conversations for a session.
+
+    Args:
+        session_id: Browser session identifier
+
+    Returns:
+        Number of deleted conversations
+    """
+    session_dir = get_session_dir(session_id)
+    if not os.path.exists(session_dir):
+        return 0
+
+    count = 0
+    for filename in os.listdir(session_dir):
+        if filename.endswith('.json'):
+            os.remove(os.path.join(session_dir, filename))
+            count += 1
+    return count

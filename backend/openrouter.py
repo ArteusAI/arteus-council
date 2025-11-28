@@ -1,8 +1,12 @@
 """OpenRouter API client for making LLM requests."""
 
 import httpx
+import time
+import logging
 from typing import List, Dict, Any, Optional
 from .config import OPENROUTER_API_KEY, OPENROUTER_API_URL
+
+logger = logging.getLogger("llm-council.openrouter")
 
 
 async def query_model(
@@ -31,6 +35,9 @@ async def query_model(
         "messages": messages,
     }
 
+    start_time = time.time()
+    short_model = model.split('/')[-1] if '/' in model else model
+    
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
@@ -42,14 +49,23 @@ async def query_model(
 
             data = response.json()
             message = data['choices'][0]['message']
+            
+            duration = time.time() - start_time
+            content_len = len(message.get('content') or '')
+            logger.info(f"[{short_model}] OK in {duration:.1f}s, response_len={content_len}")
 
             return {
                 'content': message.get('content'),
                 'reasoning_details': message.get('reasoning_details')
             }
 
+    except httpx.TimeoutException:
+        duration = time.time() - start_time
+        logger.error(f"[{short_model}] TIMEOUT after {duration:.1f}s")
+        return None
     except Exception as e:
-        print(f"Error querying model {model}: {e}")
+        duration = time.time() - start_time
+        logger.error(f"[{short_model}] ERROR after {duration:.1f}s: {type(e).__name__}: {e}")
         return None
 
 

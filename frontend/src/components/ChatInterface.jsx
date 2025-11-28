@@ -4,6 +4,7 @@ import Stage1 from './Stage1';
 import Stage2 from './Stage2';
 import Stage3 from './Stage3';
 import { exportCouncilToPdf } from '../utils/exportPdf';
+import { copyCouncilAsMarkdown } from '../utils/exportMarkdown';
 import './ChatInterface.css';
 
 export default function ChatInterface({
@@ -21,7 +22,18 @@ export default function ChatInterface({
 }) {
   const [input, setInput] = useState('');
   const [showModelPicker, setShowModelPicker] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState(null);
   const messagesEndRef = useRef(null);
+
+  const handleCopyMarkdown = async (userQuestion, msg, index) => {
+    try {
+      await copyCouncilAsMarkdown(userQuestion, msg, t);
+      setCopiedIndex(index);
+      setTimeout(() => setCopiedIndex(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -168,23 +180,7 @@ export default function ChatInterface({
                 </div>
               ) : (
                 <div className="assistant-message">
-                  <div className="message-label-row">
-                    <div className="message-label">{t('assistantLabel')}</div>
-                    {msg.stage3 && !msg.loading?.stage3 && (
-                      <button
-                        type="button"
-                        className="export-pdf-button"
-                        onClick={() => {
-                          const userMsg = conversation.messages[index - 1];
-                          const userQuestion = userMsg?.content || '';
-                          exportCouncilToPdf(userQuestion, msg, t);
-                        }}
-                        title={t('exportPdf')}
-                      >
-                        {t('exportPdf')}
-                      </button>
-                    )}
-                  </div>
+                  <div className="message-label">{t('assistantLabel')}</div>
 
                   {/* Stage 1 */}
                   {msg.loading?.stage1 && (
@@ -219,6 +215,46 @@ export default function ChatInterface({
                     </div>
                   )}
                   {msg.stage3 && <Stage3 finalResponse={msg.stage3} t={t} />}
+
+                  {/* Action bar - shown when stage 3 is complete */}
+                  {msg.stage3 && !msg.loading?.stage3 && (
+                    <div className="message-actions">
+                      <button
+                        type="button"
+                        className="action-button"
+                        onClick={() => {
+                          const userMsg = conversation.messages[index - 1];
+                          const userQuestion = userMsg?.content || '';
+                          exportCouncilToPdf(userQuestion, msg, t);
+                        }}
+                        title={t('exportPdf')}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                          <polyline points="14 2 14 8 20 8"/>
+                          <line x1="12" y1="18" x2="12" y2="12"/>
+                          <line x1="9" y1="15" x2="15" y2="15"/>
+                        </svg>
+                        {t('exportPdf')}
+                      </button>
+                      <button
+                        type="button"
+                        className="action-button"
+                        onClick={() => {
+                          const userMsg = conversation.messages[index - 1];
+                          const userQuestion = userMsg?.content || '';
+                          handleCopyMarkdown(userQuestion, msg, index);
+                        }}
+                        title={t('copyMarkdown')}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                        </svg>
+                        {copiedIndex === index ? t('copiedToClipboard') : t('copyMarkdown')}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

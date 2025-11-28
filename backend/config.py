@@ -53,7 +53,7 @@ COUNCIL_MODELS = [
 ]
 
 # Chairman model - synthesizes final response
-CHAIRMAN_MODEL = "anthropic/claude-opus-4.5"
+CHAIRMAN_MODEL = "google/gemini-3-pro-preview"
 
 # Default preferred models to preselect in the UI
 DEFAULT_PREFERRED_MODELS = [

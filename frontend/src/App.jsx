@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import LanguageSwitcher from './components/LanguageSwitcher';
@@ -25,6 +25,15 @@ function App() {
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const logoUrl = 'https://framerusercontent.com/images/G4MFpJVGo4QKdInsGAegy907Em4.png';
   const [language, setLanguage] = useState('en');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen((prev) => !prev);
+  }, []);
+
+  const closeSidebar = useCallback(() => {
+    setSidebarOpen(false);
+  }, []);
 
   useEffect(() => {
     try {
@@ -81,30 +90,84 @@ function App() {
       const data = await api.listModels();
       const councilList = data.council_models || [];
       setAvailableModels(councilList);
-      const defaultPreferred =
-        data.default_preferred_models || [
-          'openai/gpt-5.1',
-          'anthropic/claude-sonnet-4.5',
-          'google/gemini-3-pro-preview',
-        ];
-      const defaultSelection = councilList.filter((m) =>
-        defaultPreferred.includes(m)
-      );
-      setSelectedModels(
-        defaultSelection.length ? defaultSelection : councilList.slice(0, 3)
-      );
-      const chairmanCandidate =
-        data.chairman_model ||
-        defaultSelection[0] ||
-        councilList[0] ||
-        '';
-      setChairmanModel(chairmanCandidate);
+
+      // Try to load saved models from sessionStorage
+      let savedModels = null;
+      let savedChairman = null;
+      try {
+        const savedModelsStr = window.sessionStorage.getItem('arteusSelectedModels');
+        const savedChairmanStr = window.sessionStorage.getItem('arteusChairmanModel');
+        if (savedModelsStr) {
+          savedModels = JSON.parse(savedModelsStr);
+          // Validate saved models are still available
+          savedModels = savedModels.filter((m) => councilList.includes(m));
+          if (savedModels.length === 0) savedModels = null;
+        }
+        if (savedChairmanStr && councilList.includes(savedChairmanStr)) {
+          savedChairman = savedChairmanStr;
+        }
+      } catch (e) {
+        console.warn('Failed to load saved models', e);
+      }
+
+      if (savedModels) {
+        setSelectedModels(savedModels);
+      } else {
+        const defaultPreferred =
+          data.default_preferred_models || [
+            'openai/gpt-5.1',
+            'anthropic/claude-sonnet-4.5',
+            'google/gemini-3-pro-preview',
+          ];
+        const defaultSelection = councilList.filter((m) =>
+          defaultPreferred.includes(m)
+        );
+        setSelectedModels(
+          defaultSelection.length ? defaultSelection : councilList.slice(0, 3)
+        );
+      }
+
+      if (savedChairman) {
+        setChairmanModel(savedChairman);
+      } else {
+        const defaultPreferred =
+          data.default_preferred_models || [];
+        const defaultSelection = councilList.filter((m) =>
+          defaultPreferred.includes(m)
+        );
+        const chairmanCandidate =
+          data.chairman_model ||
+          defaultSelection[0] ||
+          councilList[0] ||
+          '';
+        setChairmanModel(chairmanCandidate);
+      }
     } catch (error) {
       console.error('Failed to load models:', error);
     } finally {
       setModelsLoaded(true);
     }
   };
+
+  // Save selected models to sessionStorage when they change
+  useEffect(() => {
+    if (!modelsLoaded) return;
+    try {
+      window.sessionStorage.setItem('arteusSelectedModels', JSON.stringify(selectedModels));
+    } catch (e) {
+      console.warn('Failed to save selected models', e);
+    }
+  }, [selectedModels, modelsLoaded]);
+
+  // Save chairman model to sessionStorage when it changes
+  useEffect(() => {
+    if (!modelsLoaded || !chairmanModel) return;
+    try {
+      window.sessionStorage.setItem('arteusChairmanModel', chairmanModel);
+    } catch (e) {
+      console.warn('Failed to save chairman model', e);
+    }
+  }, [chairmanModel, modelsLoaded]);
 
   const loadConversation = async (id) => {
     try {
@@ -130,6 +193,30 @@ function App() {
 
   const handleSelectConversation = (id) => {
     setCurrentConversationId(id);
+  };
+
+  const handleDeleteConversation = async (id) => {
+    try {
+      await api.deleteConversation(id);
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+      if (currentConversationId === id) {
+        setCurrentConversationId(null);
+        setCurrentConversation(null);
+      }
+    } catch (error) {
+      console.error('Failed to delete conversation:', error);
+    }
+  };
+
+  const handleDeleteAllConversations = async () => {
+    try {
+      await api.deleteAllConversations();
+      setConversations([]);
+      setCurrentConversationId(null);
+      setCurrentConversation(null);
+    } catch (error) {
+      console.error('Failed to delete all conversations:', error);
+    }
   };
 
   const toggleModelSelection = (model) => {
@@ -301,17 +388,36 @@ function App() {
   };
 
   return (
-    <div className="app">
+    <div className={`app ${sidebarOpen ? 'sidebar-open' : ''}`}>
       <LanguageSwitcher
         language={language}
         onChangeLanguage={setLanguageSafe}
         languages={supportedLanguages}
       />
+      <button 
+        className="mobile-menu-btn"
+        onClick={toggleSidebar}
+        aria-label="Toggle menu"
+      >
+        <span className="hamburger-line"></span>
+        <span className="hamburger-line"></span>
+        <span className="hamburger-line"></span>
+      </button>
+      {sidebarOpen && <div className="sidebar-overlay" onClick={closeSidebar} />}
       <Sidebar
         conversations={conversations}
         currentConversationId={currentConversationId}
-        onSelectConversation={handleSelectConversation}
-        onNewConversation={handleNewConversation}
+        onSelectConversation={(id) => {
+          handleSelectConversation(id);
+          closeSidebar();
+        }}
+        onNewConversation={() => {
+          handleNewConversation();
+          closeSidebar();
+        }}
+        onDeleteConversation={handleDeleteConversation}
+        onDeleteAllConversations={handleDeleteAllConversations}
+        isOpen={sidebarOpen}
         t={t}
       />
       <ChatInterface

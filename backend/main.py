@@ -4,8 +4,17 @@ import os
 import uuid
 import json
 import asyncio
+import logging
+import time
 
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("llm-council")
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -127,6 +136,22 @@ async def get_conversation(conversation_id: str, session_id: str = Depends(requi
     return conversation
 
 
+@router.delete("/api/conversations/{conversation_id}")
+async def delete_conversation(conversation_id: str, session_id: str = Depends(require_session_id)):
+    """Delete a specific conversation."""
+    deleted = storage.delete_conversation(session_id, conversation_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"deleted": True}
+
+
+@router.delete("/api/conversations")
+async def delete_all_conversations(session_id: str = Depends(require_session_id)):
+    """Delete all conversations for the current session."""
+    count = storage.delete_all_conversations(session_id)
+    return {"deleted_count": count}
+
+
 @router.post("/api/conversations/{conversation_id}/message")
 async def send_message(conversation_id: str, request: SendMessageRequest, session_id: str = Depends(require_session_id)):
     """
@@ -199,7 +224,13 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
         """Serialize data to JSON for SSE, ensuring proper escaping."""
         return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
 
+    # Heartbeat interval to keep connection alive (proxy timeout is usually 60s)
+    HEARTBEAT_INTERVAL = 15.0
+
     async def event_generator():
+        request_start = time.time()
+        logger.info(f"[{conversation_id[:8]}] Stream started, models={request.models}, content_len={len(request.content)}")
+        
         try:
             models_to_use = request.models or None
             chairman_to_use = request.chairman_model or None
@@ -213,39 +244,80 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
                 title_task = asyncio.create_task(generate_conversation_title(request.content))
 
             # Stage 1: Collect responses
+            stage1_start = time.time()
+            logger.info(f"[{conversation_id[:8]}] Stage 1 starting...")
             yield f"data: {sse_json({'type': 'stage1_start'})}\n\n"
-            stage1_results = await stage1_collect_responses(
+            
+            stage1_task = asyncio.create_task(stage1_collect_responses(
                 request.content,
                 models=models_to_use,
                 language=request.language,
-            )
+            ))
+            while not stage1_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(stage1_task), timeout=HEARTBEAT_INTERVAL)
+                except asyncio.TimeoutError:
+                    yield f": heartbeat\n\n"
+            stage1_results = stage1_task.result()
+            
+            stage1_duration = time.time() - stage1_start
+            logger.info(f"[{conversation_id[:8]}] Stage 1 complete in {stage1_duration:.1f}s, {len(stage1_results)} responses")
             yield f"data: {sse_json({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
 
             # Stage 2: Collect rankings
+            stage2_start = time.time()
+            logger.info(f"[{conversation_id[:8]}] Stage 2 starting...")
             yield f"data: {sse_json({'type': 'stage2_start'})}\n\n"
-            stage2_results, label_to_model = await stage2_collect_rankings(
+            
+            stage2_task = asyncio.create_task(stage2_collect_rankings(
                 request.content,
                 stage1_results,
                 models=models_to_use,
                 language=request.language,
-            )
+            ))
+            while not stage2_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(stage2_task), timeout=HEARTBEAT_INTERVAL)
+                except asyncio.TimeoutError:
+                    yield f": heartbeat\n\n"
+            stage2_results, label_to_model = stage2_task.result()
+            
             aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
+            stage2_duration = time.time() - stage2_start
+            logger.info(f"[{conversation_id[:8]}] Stage 2 complete in {stage2_duration:.1f}s, {len(stage2_results)} rankings")
             yield f"data: {sse_json({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
 
             # Stage 3: Synthesize final answer
+            stage3_start = time.time()
+            logger.info(f"[{conversation_id[:8]}] Stage 3 starting...")
             yield f"data: {sse_json({'type': 'stage3_start'})}\n\n"
-            stage3_result = await stage3_synthesize_final(
+            
+            stage3_task = asyncio.create_task(stage3_synthesize_final(
                 request.content,
                 stage1_results,
                 stage2_results,
                 chairman_model=chairman_to_use,
                 language=request.language,
-            )
+            ))
+            while not stage3_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(stage3_task), timeout=HEARTBEAT_INTERVAL)
+                except asyncio.TimeoutError:
+                    yield f": heartbeat\n\n"
+            stage3_result = stage3_task.result()
+            
+            stage3_duration = time.time() - stage3_start
+            logger.info(f"[{conversation_id[:8]}] Stage 3 complete in {stage3_duration:.1f}s")
             yield f"data: {sse_json({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
 
             # Wait for title generation if it was started
             if title_task:
-                title = await title_task
+                while not title_task.done():
+                    try:
+                        await asyncio.wait_for(asyncio.shield(title_task), timeout=HEARTBEAT_INTERVAL)
+                    except asyncio.TimeoutError:
+                        yield f": heartbeat\n\n"
+                title = title_task.result()
                 storage.update_conversation_title(session_id, conversation_id, title)
                 yield f"data: {sse_json({'type': 'title_complete', 'data': {'title': title}})}\n\n"
 
@@ -258,11 +330,17 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
                 stage3_result
             )
 
-            # Send completion event
+            total_duration = time.time() - request_start
+            logger.info(f"[{conversation_id[:8]}] Stream complete, total={total_duration:.1f}s")
             yield f"data: {sse_json({'type': 'complete'})}\n\n"
 
+        except asyncio.CancelledError:
+            elapsed = time.time() - request_start
+            logger.warning(f"[{conversation_id[:8]}] Stream CANCELLED after {elapsed:.1f}s (client disconnected)")
+            raise
         except Exception as e:
-            # Send error event
+            elapsed = time.time() - request_start
+            logger.error(f"[{conversation_id[:8]}] Stream ERROR after {elapsed:.1f}s: {type(e).__name__}: {e}")
             yield f"data: {sse_json({'type': 'error', 'message': str(e)})}\n\n"
 
     return StreamingResponse(
@@ -271,6 +349,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering for SSE
         }
     )
 

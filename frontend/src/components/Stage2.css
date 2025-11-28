@@ -1,10 +1,10 @@
 .stage2 {
-  background: #fafafa;
+  background: var(--bg-accent);
 }
 
 .stage2 h4 {
   margin: 20px 0 8px 0;
-  color: #333;
+  color: var(--text-primary);
   font-size: 14px;
   font-weight: 600;
 }
@@ -15,22 +15,23 @@
 
 .stage-description {
   margin: 0 0 12px 0;
-  color: #666;
+  color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.5;
 }
 
 .aggregate-rankings {
-  background: #f0f7ff;
+  background: var(--bg-aggregate);
   padding: 16px;
   border-radius: 8px;
   margin-bottom: 20px;
-  border: 2px solid #d0e7ff;
+  border: 2px solid var(--border-aggregate);
+  transition: background 0.3s ease, border-color 0.3s ease;
 }
 
 .aggregate-rankings h4 {
   margin: 0 0 12px 0;
-  color: #2a7ae2;
+  color: var(--text-accent);
   font-size: 15px;
 }
 
@@ -45,13 +46,14 @@
   align-items: center;
   gap: 12px;
   padding: 10px;
-  background: #ffffff;
+  background: var(--bg-primary);
   border-radius: 6px;
-  border: 1px solid #d0e7ff;
+  border: 1px solid var(--border-aggregate);
+  transition: background 0.3s ease, border-color 0.3s ease;
 }
 
 .rank-position {
-  color: #2a7ae2;
+  color: var(--text-accent);
   font-weight: 700;
   font-size: 16px;
   min-width: 35px;
@@ -59,14 +61,14 @@
 
 .rank-model {
   flex: 1;
-  color: #333;
+  color: var(--text-primary);
   font-family: monospace;
   font-size: 14px;
   font-weight: 500;
 }
 
 .rank-score {
-  color: #666;
+  color: var(--text-secondary);
   font-size: 13px;
   font-family: monospace;
 }
@@ -80,46 +82,47 @@
 
 .stage2 .tab {
   padding: 8px 16px;
-  background: #ffffff;
-  border: 1px solid #d0d0d0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-secondary);
   border-radius: 6px 6px 0 0;
-  color: #666;
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 14px;
   transition: all 0.2s;
 }
 
 .stage2 .tab:hover {
-  background: #f0f0f0;
-  color: #333;
-  border-color: #4a90e2;
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
 }
 
 .stage2 .tab.active {
-  background: #ffffff;
-  color: #4a90e2;
-  border-color: #4a90e2;
-  border-bottom-color: #ffffff;
+  background: var(--bg-primary);
+  color: var(--text-accent);
+  border-color: var(--accent-primary);
+  border-bottom-color: var(--bg-primary);
   font-weight: 600;
 }
 
 .stage2 .tab-content {
-  background: #ffffff;
+  background: var(--bg-primary);
   padding: 16px;
   border-radius: 6px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--border-primary);
   margin-bottom: 20px;
+  transition: background 0.3s ease, border-color 0.3s ease;
 }
 
 .ranking-model {
-  color: #888;
+  color: var(--text-tertiary);
   font-size: 12px;
   font-family: monospace;
   margin-bottom: 12px;
 }
 
 .ranking-content {
-  color: #333;
+  color: var(--text-primary);
   line-height: 1.6;
   font-size: 14px;
 }
@@ -127,18 +130,18 @@
 .parsed-ranking {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 2px solid #e0e0e0;
+  border-top: 2px solid var(--border-primary);
 }
 
 .parsed-ranking strong {
-  color: #2a7ae2;
+  color: var(--text-accent);
   font-size: 13px;
 }
 
 .parsed-ranking ol {
   margin: 8px 0 0 0;
   padding-left: 24px;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .parsed-ranking li {
@@ -148,6 +151,214 @@
 }
 
 .rank-count {
-  color: #999;
+  color: var(--text-tertiary);
   font-size: 12px;
+}
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+  .stage2 h4 {
+    font-size: 13px;
+    margin: 16px 0 6px 0;
+  }
+
+  .stage-description {
+    font-size: 12px;
+  }
+
+  .aggregate-rankings {
+    padding: 14px;
+    margin-bottom: 16px;
+  }
+
+  .aggregate-rankings h4 {
+    font-size: 14px;
+  }
+
+  .aggregate-item {
+    padding: 8px;
+    gap: 10px;
+  }
+
+  .rank-position {
+    font-size: 14px;
+    min-width: 30px;
+  }
+
+  .rank-model {
+    font-size: 12px;
+  }
+
+  .rank-score {
+    font-size: 11px;
+  }
+
+  .stage2 .tab {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+
+  .stage2 .tab-content {
+    padding: 12px;
+    margin-bottom: 16px;
+  }
+
+  .ranking-model {
+    font-size: 11px;
+  }
+
+  .ranking-content {
+    font-size: 13px;
+  }
+
+  .parsed-ranking {
+    margin-top: 12px;
+    padding-top: 12px;
+  }
+
+  .parsed-ranking strong {
+    font-size: 12px;
+  }
+
+  .parsed-ranking ol {
+    padding-left: 20px;
+  }
+
+  .parsed-ranking li {
+    font-size: 12px;
+  }
+
+  .rank-count {
+    font-size: 11px;
+  }
+}
+
+/* iPhone 13 mini and similar (375px) */
+@media (max-width: 390px) {
+  .stage2 h4 {
+    font-size: 12px;
+    margin: 14px 0 5px 0;
+  }
+
+  .stage-description {
+    font-size: 11px;
+  }
+
+  .aggregate-rankings {
+    padding: 12px;
+    margin-bottom: 14px;
+    border-radius: 6px;
+  }
+
+  .aggregate-rankings h4 {
+    font-size: 13px;
+    margin-bottom: 10px;
+  }
+
+  .aggregate-list {
+    gap: 6px;
+  }
+
+  .aggregate-item {
+    padding: 7px;
+    gap: 8px;
+    border-radius: 5px;
+  }
+
+  .rank-position {
+    font-size: 13px;
+    min-width: 28px;
+  }
+
+  .rank-model {
+    font-size: 11px;
+  }
+
+  .rank-score {
+    font-size: 10px;
+  }
+
+  .stage2 .tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+  }
+
+  .stage2 .tab {
+    padding: 6px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .stage2 .tab-content {
+    padding: 10px;
+    margin-bottom: 14px;
+  }
+
+  .ranking-model {
+    font-size: 10px;
+  }
+
+  .ranking-content {
+    font-size: 12px;
+  }
+
+  .parsed-ranking {
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+
+  .parsed-ranking strong {
+    font-size: 11px;
+  }
+
+  .parsed-ranking ol {
+    padding-left: 18px;
+  }
+
+  .parsed-ranking li {
+    font-size: 11px;
+  }
+}
+
+/* Very small screens (320px) */
+@media (max-width: 360px) {
+  .aggregate-rankings {
+    padding: 10px;
+  }
+
+  .aggregate-rankings h4 {
+    font-size: 12px;
+  }
+
+  .aggregate-item {
+    padding: 6px;
+  }
+
+  .rank-position {
+    font-size: 12px;
+    min-width: 24px;
+  }
+
+  .rank-model {
+    font-size: 10px;
+  }
+
+  .stage2 .tab {
+    padding: 5px 8px;
+    font-size: 11px;
+  }
+
+  .stage2 .tab-content {
+    padding: 8px;
+  }
+
+  .ranking-content {
+    font-size: 11px;
+  }
+
+  .parsed-ranking li {
+    font-size: 10px;
+  }
 }
