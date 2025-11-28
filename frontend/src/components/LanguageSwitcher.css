@@ -1,0 +1,147 @@
+.language-switcher {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  z-index: 10;
+}
+
+.language-toggle {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-primary);
+  font-size: 20px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.3s ease, border-color 0.3s ease;
+}
+
+.language-toggle:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
+}
+
+.language-menu {
+  position: absolute;
+  bottom: 52px;
+  left: 0;
+  padding: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 10px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+  transition: background 0.3s ease, border-color 0.3s ease;
+}
+
+.language-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: var(--bg-primary);
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-primary);
+  justify-content: flex-start;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.3s ease;
+}
+
+.language-option:hover {
+  border-color: var(--border-secondary);
+  background: var(--bg-accent);
+}
+
+.language-option.active {
+  border-color: var(--accent-blue);
+  background: var(--accent-light);
+}
+
+.language-flag {
+  font-size: 18px;
+}
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+  .language-switcher {
+    bottom: 12px;
+    left: auto;
+    right: 12px;
+  }
+
+  .language-toggle {
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
+  }
+
+  .language-menu {
+    bottom: 50px;
+    left: auto;
+    right: 0;
+    min-width: 140px;
+  }
+
+  .language-option {
+    padding: 10px 8px;
+    font-size: 13px;
+  }
+
+  .language-flag {
+    font-size: 16px;
+  }
+}
+
+/* iPhone 13 mini and similar (375px) */
+@media (max-width: 390px) {
+  .language-switcher {
+    bottom: 10px;
+    right: 10px;
+  }
+
+  .language-toggle {
+    width: 38px;
+    height: 38px;
+    font-size: 16px;
+  }
+
+  .language-menu {
+    bottom: 46px;
+    min-width: 130px;
+    padding: 6px;
+  }
+
+  .language-option {
+    padding: 8px 6px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+
+  .language-flag {
+    font-size: 15px;
+  }
+}
+
+/* Very small screens (320px) */
+@media (max-width: 360px) {
+  .language-toggle {
+    width: 36px;
+    height: 36px;
+    font-size: 15px;
+  }
+
+  .language-menu {
+    bottom: 44px;
+    min-width: 120px;
+  }
+
+  .language-option {
+    font-size: 11px;
+  }
+}

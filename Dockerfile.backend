@@ -1,0 +1,24 @@
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# Install uv for faster/locked dependency installs
+RUN pip install --no-cache-dir uv
+
+# Copy dependency manifests first for better build caching
+COPY pyproject.toml uv.lock ./
+
+# Install dependencies into the system environment
+RUN uv pip install --system .
+
+# Copy application code
+COPY backend ./backend
+COPY data ./data
+
+EXPOSE 8001
+
+CMD ["uv", "run", "python", "-m", "backend.main"]

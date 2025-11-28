@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "${BACKEND_PORT:-8001}:${BACKEND_PORT:-8001}"
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - BACKEND_PORT=${BACKEND_PORT:-8001}
+      - BASE_URL=${BASE_URL:-/}
+      - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-}
+    volumes:
+      - data:/app/data
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-http://localhost:${BACKEND_PORT:-8001}}
+        BASE_URL: ${BASE_URL:-${VITE_BASE_PATH:-/}}
+        BACKEND_PORT: ${BACKEND_PORT:-8001}
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      - backend
+
+volumes:
+  data:
