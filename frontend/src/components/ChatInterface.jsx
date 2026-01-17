@@ -25,6 +25,33 @@ export default function ChatInterface({
   const [copiedIndex, setCopiedIndex] = useState(null);
   const messagesEndRef = useRef(null);
 
+  // Load draft when conversation changes
+  useEffect(() => {
+    if (conversation?.id) {
+      try {
+        const savedDraft = localStorage.getItem(`draft_${conversation.id}`);
+        setInput(savedDraft || '');
+      } catch (e) {
+        console.warn('Failed to load draft', e);
+      }
+    }
+  }, [conversation?.id]);
+
+  // Save draft when input changes
+  useEffect(() => {
+    if (conversation?.id) {
+      try {
+        if (input) {
+          localStorage.setItem(`draft_${conversation.id}`, input);
+        } else {
+          localStorage.removeItem(`draft_${conversation.id}`);
+        }
+      } catch (e) {
+        console.warn('Failed to save draft', e);
+      }
+    }
+  }, [input, conversation?.id]);
+
   const handleCopyMarkdown = async (userQuestion, msg, index) => {
     try {
       await copyCouncilAsMarkdown(userQuestion, msg, t);
@@ -47,6 +74,7 @@ export default function ChatInterface({
     e.preventDefault();
     if (input.trim() && !isLoading && selectedModels.length > 0 && modelsLoaded) {
       onSendMessage(input);
+      // Draft is removed by the useEffect that watches input when it's set to empty
       setInput('');
     }
   };

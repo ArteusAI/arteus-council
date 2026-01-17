@@ -56,6 +56,7 @@ export function formatCouncilAsMarkdown(userQuestion, assistantMessage, t) {
     
     const rankings = assistantMessage.metadata.aggregate_rankings;
     const sortedModels = Object.entries(rankings)
+      .filter(([, data]) => data && typeof data.average === 'number')
       .sort((a, b) => a[1].average - b[1].average);
     
     lines.push('| Model | Avg | Votes |');
@@ -63,7 +64,9 @@ export function formatCouncilAsMarkdown(userQuestion, assistantMessage, t) {
     
     for (const [model, data] of sortedModels) {
       const modelName = model.split('/')[1] || model;
-      lines.push(`| ${modelName} | ${data.average.toFixed(2)} | ${data.votes} |`);
+      const avg = typeof data.average === 'number' ? data.average.toFixed(2) : 'N/A';
+      const votes = data.votes ?? 0;
+      lines.push(`| ${modelName} | ${avg} | ${votes} |`);
     }
     lines.push('');
   }

@@ -10,6 +10,43 @@
   border-radius: 6px;
   border: 1px solid var(--border-stage3);
   transition: background 0.3s ease, border-color 0.3s ease;
+  position: relative;
+}
+
+.copy-response-btn {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  opacity: 0.6;
+}
+
+.copy-response-btn:hover {
+  opacity: 1;
+  background: var(--bg-primary);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.copy-response-btn.copied {
+  opacity: 1;
+  background: var(--bg-primary);
+  border-color: #4caf50;
+  color: #4caf50;
+}
+
+.copy-response-btn span {
+  font-weight: 500;
 }
 
 .chairman-label {

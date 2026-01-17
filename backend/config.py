@@ -49,7 +49,8 @@ COUNCIL_MODELS = [
     "qwen/qwen3-max",
     "x-ai/grok-4",
     "moonshotai/kimi-k2-thinking",
-    "deepseek/deepseek-v3.2-exp"
+    "deepseek/deepseek-v3.2-speciale",
+    "mistralai/mistral-large-2512"
 ]
 
 # Chairman model - synthesizes final response
@@ -59,7 +60,7 @@ CHAIRMAN_MODEL = "google/gemini-3-pro-preview"
 DEFAULT_PREFERRED_MODELS = [
     "openai/gpt-5.1",
     "anthropic/claude-opus-4.5",
-    "google/gemini-3-pro-preview",
+    "google/gemini-3-pro-preview"
 ]
 
 # OpenRouter API endpoint

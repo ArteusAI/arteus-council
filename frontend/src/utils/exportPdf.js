@@ -270,6 +270,7 @@ export async function exportCouncilToPdf(userQuestion, assistantMessage, t) {
 
     const rankings = assistantMessage.metadata.aggregate_rankings;
     const sortedModels = Object.entries(rankings)
+      .filter(([, data]) => data && typeof data.average === 'number')
       .sort((a, b) => a[1].average - b[1].average);
 
     for (const [model, data] of sortedModels) {
@@ -278,7 +279,9 @@ export async function exportCouncilToPdf(userQuestion, assistantMessage, t) {
         y = 25;
       }
       const modelName = model.split('/')[1] || model;
-      const avgText = `${t('avgShort')}: ${data.average.toFixed(2)}, ${t('votes')}: ${data.votes}`;
+      const avg = typeof data.average === 'number' ? data.average.toFixed(2) : 'N/A';
+      const votes = data.votes ?? 0;
+      const avgText = `${t('avgShort')}: ${avg}, ${t('votes')}: ${votes}`;
       doc.text(`${modelName} - ${avgText}`, marginLeft, y);
       y += 7;
     }

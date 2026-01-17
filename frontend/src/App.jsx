@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
-import LanguageSwitcher from './components/LanguageSwitcher';
 import { api } from './api';
 import { translate, supportedLanguages } from './i18n';
 import './App.css';
@@ -16,7 +15,13 @@ const normalizeLang = (code) => {
 
 function App() {
   const [conversations, setConversations] = useState([]);
-  const [currentConversationId, setCurrentConversationId] = useState(null);
+  const [currentConversationId, setCurrentConversationId] = useState(() => {
+    try {
+      return localStorage.getItem('arteusCurrentConversationId') || null;
+    } catch (e) {
+      return null;
+    }
+  });
   const [currentConversation, setCurrentConversation] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [availableModels, setAvailableModels] = useState([]);
@@ -24,8 +29,28 @@ function App() {
   const [chairmanModel, setChairmanModel] = useState('');
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const logoUrl = 'https://framerusercontent.com/images/G4MFpJVGo4QKdInsGAegy907Em4.png';
-  const [language, setLanguage] = useState('en');
+  const [language, setLanguage] = useState('ru');
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem('arteusTheme') || 'dark';
+    } catch {
+      return 'dark';
+    }
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    try {
+      localStorage.setItem('arteusTheme', theme);
+    } catch (e) {
+      console.warn('Theme save failed', e);
+    }
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
+  }, []);
 
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((prev) => !prev);
@@ -37,15 +62,14 @@ function App() {
 
   useEffect(() => {
     try {
-      const savedLang = window.sessionStorage.getItem('arteusLang');
+      const savedLang = localStorage.getItem('arteusLang');
       if (savedLang) {
         setLanguage(normalizeLang(savedLang));
         return;
       }
-      const navLang = navigator.language || (navigator.languages || [])[0];
-      const detected = normalizeLang(navLang);
-      setLanguage(detected);
-      window.sessionStorage.setItem('arteusLang', detected);
+      // Default to RU if no saved language
+      setLanguage('ru');
+      localStorage.setItem('arteusLang', 'ru');
     } catch (e) {
       console.warn('Language load failed', e);
     }
@@ -55,7 +79,7 @@ function App() {
     const normalized = normalizeLang(code);
     setLanguage(normalized);
     try {
-      window.sessionStorage.setItem('arteusLang', normalized);
+      localStorage.setItem('arteusLang', normalized);
     } catch (e) {
       console.warn('Language save failed', e);
     }
@@ -76,10 +100,29 @@ function App() {
     }
   }, [currentConversationId]);
 
+  // Save current conversation ID to localStorage when it changes
+  useEffect(() => {
+    try {
+      if (currentConversationId) {
+        localStorage.setItem('arteusCurrentConversationId', currentConversationId);
+      } else {
+        localStorage.removeItem('arteusCurrentConversationId');
+      }
+    } catch (e) {
+      console.warn('Failed to save current conversation ID', e);
+    }
+  }, [currentConversationId]);
+
   const loadConversations = async () => {
     try {
       const convs = await api.listConversations();
       setConversations(convs);
+
+      // Validate currentConversationId if it exists
+      if (currentConversationId && !convs.find(c => c.id === currentConversationId)) {
+        setCurrentConversationId(null);
+        setCurrentConversation(null);
+      }
     } catch (error) {
       console.error('Failed to load conversations:', error);
     }
@@ -388,12 +431,7 @@ function App() {
   };
 
   return (
-    <div className={`app ${sidebarOpen ? 'sidebar-open' : ''}`}>
-      <LanguageSwitcher
-        language={language}
-        onChangeLanguage={setLanguageSafe}
-        languages={supportedLanguages}
-      />
+    <div className={`app ${theme} ${sidebarOpen ? 'sidebar-open' : ''}`}>
       <button 
         className="mobile-menu-btn"
         onClick={toggleSidebar}
@@ -418,6 +456,10 @@ function App() {
         onDeleteConversation={handleDeleteConversation}
         onDeleteAllConversations={handleDeleteAllConversations}
         isOpen={sidebarOpen}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        language={language}
+        onLanguageChange={setLanguageSafe}
         t={t}
       />
       <ChatInterface

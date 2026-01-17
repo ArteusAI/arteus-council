@@ -1,3 +1,37 @@
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f9f9f9;
+  --text-primary: #1a1a1a;
+  --text-secondary: #666666;
+  --border-primary: #e0e0e0;
+  --accent-primary: #007aff;
+  --accent-secondary: #0056b3;
+  --message-user-bg: #f0f0f0;
+  --message-assistant-bg: #ffffff;
+  --card-bg: #ffffff;
+  --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --sidebar-bg: #f5f5f7;
+  --sidebar-item-active: #e5e5e7;
+  --input-bg: #ffffff;
+}
+
+[data-theme='dark'] {
+  --bg-primary: #121212;
+  --bg-secondary: #1e1e1e;
+  --text-primary: #e0e0e0;
+  --text-secondary: #a0a0a0;
+  --border-primary: #333333;
+  --accent-primary: #0a84ff;
+  --accent-secondary: #409cff;
+  --message-user-bg: #2c2c2e;
+  --message-assistant-bg: #1c1c1e;
+  --card-bg: #1e1e1e;
+  --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --sidebar-bg: #1c1c1e;
+  --sidebar-item-active: #2c2c2e;
+  --input-bg: #2c2c2e;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -14,6 +48,14 @@
     sans-serif;
   transition: background 0.3s ease, color 0.3s ease;
   position: relative;
+}
+
+.app.light {
+  /* Default light variables are already in :root */
+}
+
+.app.dark {
+  /* Handled by [data-theme='dark'] but adding class for compatibility if needed */
 }
 
 /* Mobile hamburger menu button */

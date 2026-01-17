@@ -10,27 +10,15 @@ export default function Sidebar({
   onDeleteConversation,
   onDeleteAllConversations,
   isOpen,
+  theme,
+  onToggleTheme,
+  language,
+  onLanguageChange,
   t,
 }) {
-  const [theme, setTheme] = useState(() => {
-    try {
-      return window.sessionStorage.getItem('arteusTheme') || 'light';
-    } catch {
-      return 'light';
-    }
-  });
   const [showEasterEgg, setShowEasterEgg] = useState(false);
   const clickCountRef = useRef(0);
   const clickTimerRef = useRef(null);
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    try {
-      window.sessionStorage.setItem('arteusTheme', theme);
-    } catch (e) {
-      console.warn('Theme save failed', e);
-    }
-  }, [theme]);
 
   const handleLogoClick = () => {
     clickCountRef.current += 1;
@@ -47,14 +35,10 @@ export default function Sidebar({
 
     clickTimerRef.current = setTimeout(() => {
       if (clickCountRef.current === 1) {
-        toggleTheme();
+        onToggleTheme();
       }
       clickCountRef.current = 0;
     }, 400);
-  };
-
-  const toggleTheme = () => {
-    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
   };
 
   const handleDelete = (e, convId) => {
@@ -128,6 +112,28 @@ export default function Sidebar({
             )}
           </>
         )}
+      </div>
+
+      <div className="sidebar-footer">
+        <div className="footer-controls">
+          <button 
+            className="theme-toggle-btn" 
+            onClick={onToggleTheme}
+            title={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
+          >
+            {theme === 'light' ? '🌙' : '☀️'}
+          </button>
+          
+          <select 
+            className="lang-select" 
+            value={language} 
+            onChange={(e) => onLanguageChange(e.target.value)}
+          >
+            <option value="en">EN</option>
+            <option value="ru">RU</option>
+            <option value="el">EL</option>
+          </select>
+        </div>
       </div>
     </div>
   );
