@@ -46,85 +46,346 @@ function arrayBufferToBase64(buffer) {
 }
 
 /**
- * Remove markdown formatting for plain text PDF output.
+ * Parse inline markdown (bold, italic) into segments with style info.
  */
-function stripMarkdown(text) {
-  if (!text) return '';
-  if (typeof text !== 'string') return String(text);
-  return text
-    .replace(/#{1,6}\s+/g, '')
-    .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/\*(.+?)\*/g, '$1')
-    .replace(/__(.+?)__/g, '$1')
-    .replace(/_(.+?)_/g, '$1')
-    .replace(/`{1,3}[^`]*`{1,3}/g, (match) => match.replace(/`/g, ''))
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/^[-*+]\s+/gm, '• ')
-    .replace(/^\d+\.\s+/gm, '')
-    .trim();
+function parseInlineMarkdown(text) {
+  if (!text) return [{ text: '', style: 'normal' }];
+  
+  const segments = [];
+  // Regex to match **bold**, *italic*, __bold__, _italic_, `code`, and [link](url)
+  const regex = /(\*\*(.+?)\*\*)|(__(.+?)__)|(\*(.+?)\*)|(_([^_]+)_)|(`([^`]+)`)|(\[([^\]]+)\]\(([^)]+)\))/g;
+  
+  let lastIndex = 0;
+  let match;
+  
+  while ((match = regex.exec(text)) !== null) {
+    // Add text before the match as normal
+    if (match.index > lastIndex) {
+      segments.push({ text: text.slice(lastIndex, match.index), style: 'normal' });
+    }
+    
+    if (match[1]) {
+      // **bold**
+      segments.push({ text: match[2], style: 'bold' });
+    } else if (match[3]) {
+      // __bold__
+      segments.push({ text: match[4], style: 'bold' });
+    } else if (match[5]) {
+      // *italic*
+      segments.push({ text: match[6], style: 'italic' });
+    } else if (match[7]) {
+      // _italic_
+      segments.push({ text: match[8], style: 'italic' });
+    } else if (match[9]) {
+      // `code`
+      segments.push({ text: match[10], style: 'code' });
+    } else if (match[11]) {
+      // [link](url)
+      segments.push({ text: match[12], style: 'normal' });
+    }
+    
+    lastIndex = match.index + match[0].length;
+  }
+  
+  // Add remaining text
+  if (lastIndex < text.length) {
+    segments.push({ text: text.slice(lastIndex), style: 'normal' });
+  }
+  
+  if (segments.length === 0) {
+    segments.push({ text: text, style: 'normal' });
+  }
+  
+  return segments;
 }
 
 /**
- * Split text into lines manually for reliable wrapping.
+ * Parse a line and determine its type (heading, list item, paragraph).
  */
-function wrapTextManual(doc, text, maxWidth) {
-  const lines = [];
-  const paragraphs = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+function parseLineType(line) {
+  if (!line || typeof line !== 'string') {
+    return { type: 'paragraph', content: '', level: 0 };
+  }
   
-  for (let i = 0; i < paragraphs.length; i++) {
-    const para = paragraphs[i];
-    if (!para.trim()) {
-      lines.push('');
-      continue;
-    }
+  // Check for headings
+  const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
+  if (headingMatch) {
+    return { 
+      type: 'heading', 
+      level: headingMatch[1].length, 
+      content: headingMatch[2] 
+    };
+  }
+  
+  // Check for unordered list
+  const ulMatch = line.match(/^(\s*)([-*+])\s+(.*)$/);
+  if (ulMatch) {
+    const indent = Math.floor(ulMatch[1].length / 2);
+    return { 
+      type: 'list-item', 
+      ordered: false, 
+      indent, 
+      content: ulMatch[3] 
+    };
+  }
+  
+  // Check for ordered list
+  const olMatch = line.match(/^(\s*)(\d+)\.\s+(.*)$/);
+  if (olMatch) {
+    const indent = Math.floor(olMatch[1].length / 2);
+    return { 
+      type: 'list-item', 
+      ordered: true, 
+      number: parseInt(olMatch[2], 10),
+      indent, 
+      content: olMatch[3] 
+    };
+  }
+  
+  // Check for code block marker
+  if (line.match(/^```/)) {
+    return { type: 'code-block-marker', content: line.replace(/^```\w*/, '') };
+  }
+  
+  // Regular paragraph
+  return { type: 'paragraph', content: line, level: 0 };
+}
+
+/**
+ * Wrap text with inline segments, returning wrapped lines with segment info.
+ */
+function wrapSegmentedText(doc, segments, maxWidth) {
+  const lines = [];
+  let currentLine = [];
+  let currentWidth = 0;
+  
+  for (const segment of segments) {
+    const words = segment.text.split(/(\s+)/);
     
-    // Use jsPDF's splitTextToSize for proper text wrapping
-    try {
-      const wrapped = doc.splitTextToSize(para, maxWidth);
-      if (Array.isArray(wrapped)) {
-        lines.push(...wrapped);
-      } else {
-        lines.push(wrapped);
+    for (const word of words) {
+      if (!word) continue;
+      
+      // Set font for measurement
+      const fontStyle = segment.style === 'bold' ? 'bold' : 'normal';
+      try {
+        doc.setFont('DejaVu', fontStyle);
+      } catch {
+        doc.setFont('helvetica', fontStyle);
       }
-    } catch (e) {
-      // Fallback: simple word wrap
-      const words = para.split(' ');
-      let currentLine = '';
-      for (const word of words) {
-        const testLine = currentLine ? currentLine + ' ' + word : word;
-        const textWidth = doc.getTextWidth(testLine);
-        if (textWidth > maxWidth && currentLine) {
-          lines.push(currentLine);
-          currentLine = word;
-        } else {
-          currentLine = testLine;
-        }
+      
+      const wordWidth = doc.getTextWidth(word);
+      
+      if (currentWidth + wordWidth > maxWidth && currentLine.length > 0) {
+        lines.push([...currentLine]);
+        currentLine = [];
+        currentWidth = 0;
       }
-      if (currentLine) {
-        lines.push(currentLine);
+      
+      // Skip leading whitespace on new line
+      if (currentLine.length === 0 && word.match(/^\s+$/)) {
+        continue;
       }
-    }
-    
-    if (i < paragraphs.length - 1 && paragraphs[i + 1].trim()) {
-      lines.push('');
+      
+      currentLine.push({ text: word, style: segment.style });
+      currentWidth += wordWidth;
     }
   }
+  
+  if (currentLine.length > 0) {
+    lines.push(currentLine);
+  }
+  
   return lines;
 }
 
 /**
- * Add text with automatic page breaks.
+ * Render a line with inline styled segments.
  */
-function addTextWithPageBreak(doc, lines, startY, lineHeight, marginLeft, marginBottom, pageHeight) {
-  let y = startY;
+function renderStyledLine(doc, segments, x, y, fonts) {
+  let currentX = x;
   
-  for (const line of lines) {
-    if (y + lineHeight > pageHeight - marginBottom) {
+  for (const segment of segments) {
+    let fontStyle = 'normal';
+    if (segment.style === 'bold') {
+      fontStyle = 'bold';
+    }
+    
+    if (fonts) {
+      doc.setFont('DejaVu', fontStyle);
+    } else {
+      doc.setFont('helvetica', fontStyle);
+    }
+    
+    // For code style, add a subtle background effect via gray text
+    if (segment.style === 'code') {
+      doc.setTextColor(80, 80, 80);
+    }
+    
+    doc.text(segment.text, currentX, y);
+    currentX += doc.getTextWidth(segment.text);
+    
+    // Reset color if it was changed
+    if (segment.style === 'code') {
+      doc.setTextColor(0, 0, 0);
+    }
+  }
+  
+  return currentX;
+}
+
+/**
+ * Render markdown text to PDF with proper formatting.
+ */
+function renderMarkdownToPdf(doc, text, startY, config) {
+  const { 
+    marginLeft, 
+    marginBottom, 
+    pageHeight, 
+    contentWidth, 
+    lineHeight, 
+    fonts,
+    baseFontSize = 11
+  } = config;
+  
+  if (!text) return startY;
+  if (typeof text !== 'string') text = String(text);
+  
+  let y = startY;
+  const paragraphs = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  let inCodeBlock = false;
+  let codeBlockLines = [];
+  
+  for (let i = 0; i < paragraphs.length; i++) {
+    const rawLine = paragraphs[i];
+    
+    // Handle code blocks
+    if (rawLine.match(/^```/)) {
+      if (inCodeBlock) {
+        // End code block - render accumulated code
+        if (codeBlockLines.length > 0) {
+          doc.setFontSize(9);
+          doc.setTextColor(60, 60, 60);
+          if (fonts) doc.setFont('DejaVu', 'normal');
+          
+          for (const codeLine of codeBlockLines) {
+            if (y + lineHeight > pageHeight - marginBottom) {
+              doc.addPage();
+              y = 25;
+            }
+            doc.text(codeLine || ' ', marginLeft + 5, y);
+            y += 5;
+          }
+          y += 3;
+        }
+        codeBlockLines = [];
+        inCodeBlock = false;
+        doc.setFontSize(baseFontSize);
+        doc.setTextColor(0, 0, 0);
+        continue;
+      } else {
+        inCodeBlock = true;
+        continue;
+      }
+    }
+    
+    if (inCodeBlock) {
+      codeBlockLines.push(rawLine);
+      continue;
+    }
+    
+    // Parse line type
+    const parsed = parseLineType(rawLine);
+    
+    // Handle page break
+    const neededHeight = parsed.type === 'heading' ? lineHeight * 1.5 : lineHeight;
+    if (y + neededHeight > pageHeight - marginBottom) {
       doc.addPage();
       y = 25;
     }
-    doc.text(line, marginLeft, y);
-    y += lineHeight;
+    
+    if (parsed.type === 'heading') {
+      // Render heading with larger font and bold
+      const headingSizes = { 1: 16, 2: 14, 3: 13, 4: 12, 5: 11, 6: 11 };
+      const fontSize = headingSizes[parsed.level] || 11;
+      
+      doc.setFontSize(fontSize);
+      doc.setTextColor(30, 58, 138);
+      if (fonts) doc.setFont('DejaVu', 'bold');
+      
+      // Parse inline markdown in heading content
+      const segments = parseInlineMarkdown(parsed.content);
+      const wrappedLines = wrapSegmentedText(doc, segments, contentWidth);
+      
+      for (const lineSegments of wrappedLines) {
+        if (y + lineHeight > pageHeight - marginBottom) {
+          doc.addPage();
+          y = 25;
+        }
+        // For headings, render all as bold
+        const plainText = lineSegments.map(s => s.text).join('');
+        doc.text(plainText, marginLeft, y);
+        y += lineHeight * 1.2;
+      }
+      
+      // Reset styles
+      doc.setFontSize(baseFontSize);
+      doc.setTextColor(0, 0, 0);
+      if (fonts) doc.setFont('DejaVu', 'normal');
+      y += 2;
+      
+    } else if (parsed.type === 'list-item') {
+      // Render list item with bullet/number and indentation
+      const indentX = marginLeft + (parsed.indent * 8);
+      const bulletWidth = 10;
+      
+      doc.setFontSize(baseFontSize);
+      doc.setTextColor(0, 0, 0);
+      if (fonts) doc.setFont('DejaVu', 'normal');
+      
+      // Draw bullet or number
+      if (parsed.ordered) {
+        doc.text(`${parsed.number}.`, indentX, y);
+      } else {
+        doc.text('•', indentX, y);
+      }
+      
+      // Parse and render content with inline styles
+      const segments = parseInlineMarkdown(parsed.content);
+      const itemWidth = contentWidth - (parsed.indent * 8) - bulletWidth;
+      const wrappedLines = wrapSegmentedText(doc, segments, itemWidth);
+      
+      for (let j = 0; j < wrappedLines.length; j++) {
+        if (y + lineHeight > pageHeight - marginBottom) {
+          doc.addPage();
+          y = 25;
+        }
+        renderStyledLine(doc, wrappedLines[j], indentX + bulletWidth, y, fonts);
+        y += lineHeight;
+      }
+      
+    } else {
+      // Regular paragraph
+      if (!rawLine.trim()) {
+        y += lineHeight * 0.5;
+        continue;
+      }
+      
+      doc.setFontSize(baseFontSize);
+      doc.setTextColor(0, 0, 0);
+      if (fonts) doc.setFont('DejaVu', 'normal');
+      
+      const segments = parseInlineMarkdown(rawLine);
+      const wrappedLines = wrapSegmentedText(doc, segments, contentWidth);
+      
+      for (const lineSegments of wrappedLines) {
+        if (y + lineHeight > pageHeight - marginBottom) {
+          doc.addPage();
+          y = 25;
+        }
+        renderStyledLine(doc, lineSegments, marginLeft, y, fonts);
+        y += lineHeight;
+      }
+    }
   }
   
   return y;
@@ -181,6 +442,17 @@ export async function exportCouncilToPdf(userQuestion, assistantMessage, t) {
   doc.text(now.toLocaleString(), marginLeft, y);
   y += 14;
 
+  // Shared config for markdown rendering
+  const mdConfig = {
+    marginLeft,
+    marginBottom,
+    pageHeight,
+    contentWidth,
+    lineHeight,
+    fonts,
+    baseFontSize: 11
+  };
+
   // Question section
   doc.setFontSize(13);
   doc.setTextColor(0, 0, 0);
@@ -188,11 +460,8 @@ export async function exportCouncilToPdf(userQuestion, assistantMessage, t) {
   doc.text(t('youLabel') + ':', marginLeft, y);
   y += 8;
 
-  doc.setFontSize(11);
   doc.setTextColor(50, 50, 50);
-  if (fonts) doc.setFont('DejaVu', 'normal');
-  const questionLines = wrapTextManual(doc, stripMarkdown(userQuestion), contentWidth);
-  y = addTextWithPageBreak(doc, questionLines, y, lineHeight, marginLeft, marginBottom, pageHeight);
+  y = renderMarkdownToPdf(doc, userQuestion, y, mdConfig);
   y += 10;
 
   // Final Answer section
@@ -204,11 +473,8 @@ export async function exportCouncilToPdf(userQuestion, assistantMessage, t) {
     doc.text(`${t('stage3Title')} (${chairmanName}):`, marginLeft, y);
     y += 8;
 
-    doc.setFontSize(11);
     doc.setTextColor(0, 0, 0);
-    if (fonts) doc.setFont('DejaVu', 'normal');
-    const answerLines = wrapTextManual(doc, stripMarkdown(assistantMessage.stage3.response), contentWidth);
-    y = addTextWithPageBreak(doc, answerLines, y, lineHeight, marginLeft, marginBottom, pageHeight);
+    y = renderMarkdownToPdf(doc, assistantMessage.stage3.response, y, mdConfig);
   }
 
   // --- PAGE 2+: Details ---
@@ -228,6 +494,8 @@ export async function exportCouncilToPdf(userQuestion, assistantMessage, t) {
       ? stage1Data.map((item) => [item.model, item.response])
       : Object.entries(stage1Data);
 
+    const stage1MdConfig = { ...mdConfig, baseFontSize: 10, lineHeight: 5 };
+    
     for (const [model, response] of entries) {
       if (y > pageHeight - 40) {
         doc.addPage();
@@ -241,12 +509,9 @@ export async function exportCouncilToPdf(userQuestion, assistantMessage, t) {
       doc.text(modelName, marginLeft, y);
       y += 7;
 
-      doc.setFontSize(10);
       doc.setTextColor(0, 0, 0);
-      if (fonts) doc.setFont('DejaVu', 'normal');
       const responseText = typeof response === 'string' ? response : String(response || '');
-      const responseLines = wrapTextManual(doc, stripMarkdown(responseText), contentWidth);
-      y = addTextWithPageBreak(doc, responseLines, y, 5, marginLeft, marginBottom, pageHeight);
+      y = renderMarkdownToPdf(doc, responseText, y, stage1MdConfig);
       y += 8;
     }
   }
