@@ -20,6 +20,13 @@ def language_instruction(language: str | None) -> str:
     return f" Please write your answer in {name}."
 
 
+def build_personalization_section(personal_prompt: str | None) -> str:
+    """Build the personalization section for the prompt."""
+    if not personal_prompt:
+        return ""
+    return f"\n\nIMPORTANT STYLE INSTRUCTIONS:\nYou MUST strictly follow these instructions for the tone and style of your final response:\n{personal_prompt}\n"
+
+
 async def stage1_collect_responses(
     user_query: str,
     models: List[str] | None = None,
@@ -31,6 +38,7 @@ async def stage1_collect_responses(
     Args:
         user_query: The user's question
         models: Optional override list of models to query
+        language: Optional language preference
 
     Returns:
         List of dicts with 'model' and 'response' keys
@@ -147,6 +155,7 @@ async def stage3_synthesize_final(
     stage2_results: List[Dict[str, Any]],
     chairman_model: str | None = None,
     language: str | None = None,
+    personal_prompt: str | None = None,
 ) -> Dict[str, Any]:
     """
     Stage 3: Chairman synthesizes final response.
@@ -156,6 +165,7 @@ async def stage3_synthesize_final(
         stage1_results: Individual model responses from Stage 1
         stage2_results: Rankings from Stage 2
         chairman_model: Optional override for chairman model
+        personal_prompt: Optional user personalization prompt
 
     Returns:
         Dict with 'model' and 'response' keys
@@ -174,6 +184,7 @@ async def stage3_synthesize_final(
     ])
 
     language_note = language_instruction(language)
+    personalization = build_personalization_section(personal_prompt)
     chairman_prompt = f"""You are the Chairman of an LLM Council. Multiple AI models have provided responses to a user's question, and then ranked each other's responses.
 
 Original Question: {user_query}
@@ -188,7 +199,7 @@ Your task as Chairman is to synthesize all of this information into a single, co
 - The individual responses and their insights
 - The peer rankings and what they reveal about response quality
 - Any patterns of agreement or disagreement
-
+{personalization}
 Provide a clear, well-reasoned final answer that represents the council's collective wisdom:"""
     if language_note:
         target_language = LANGUAGE_NAMES.get(language.lower(), "the user's language")
@@ -336,6 +347,7 @@ async def run_full_council(
     models: List[str] | None = None,
     chairman_model: str | None = None,
     language: str | None = None,
+    personal_prompt: str | None = None,
 ) -> Tuple[List, List, Dict, Dict]:
     """
     Run the complete 3-stage council process.
@@ -344,12 +356,16 @@ async def run_full_council(
         user_query: The user's question
         models: Optional override list of council models
         chairman_model: Optional override for chairman synthesis model
+        language: Optional language preference
+        personal_prompt: Optional user personalization prompt
 
     Returns:
         Tuple of (stage1_results, stage2_results, stage3_result, metadata)
     """
     # Stage 1: Collect individual responses
-    stage1_results = await stage1_collect_responses(user_query, models=models, language=language)
+    stage1_results = await stage1_collect_responses(
+        user_query, models=models, language=language
+    )
 
     # If no models responded successfully, return error
     if not stage1_results:
@@ -376,6 +392,7 @@ async def run_full_council(
         stage2_results,
         chairman_model=chairman_model,
         language=language,
+        personal_prompt=personal_prompt,
     )
 
     # Prepare metadata

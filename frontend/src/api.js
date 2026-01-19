@@ -114,6 +114,51 @@ export const api = {
   },
 
   /**
+   * Get available personalization templates.
+   */
+  async getPersonalizationTemplates() {
+    const response = await fetch(`${API_BASE}/api/personalization-templates`);
+    if (!response.ok) {
+      throw new Error('Failed to get personalization templates');
+    }
+    return response.json();
+  },
+
+  /**
+   * Get user's personal prompt settings.
+   */
+  async getPersonalPrompt() {
+    const response = await fetch(`${API_BASE}/api/user/personal-prompt`, {
+      headers: withAuth(),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to get personal prompt');
+    }
+    return response.json();
+  },
+
+  /**
+   * Update user's personal prompt settings.
+   */
+  async setPersonalPrompt(personalPrompt, templateId = 'custom') {
+    const response = await fetch(`${API_BASE}/api/user/personal-prompt`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...withAuth(),
+      },
+      body: JSON.stringify({
+        personal_prompt: personalPrompt,
+        template_id: templateId,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to update personal prompt');
+    }
+    return response.json();
+  },
+
+  /**
    * List all conversations.
    */
   async listConversations() {

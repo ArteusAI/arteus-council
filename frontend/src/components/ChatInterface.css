@@ -283,6 +283,98 @@
   transition: background 0.3s ease, border-color 0.3s ease;
 }
 
+/* Scraped Links Section */
+.scraped-links-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.scraped-link-card {
+  background: var(--bg-accent);
+  border: 1px solid var(--border-primary);
+  border-radius: 10px;
+  padding: 14px 16px;
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.2s ease;
+}
+
+.scraped-link-card:hover {
+  border-color: var(--accent-blue);
+  box-shadow: var(--shadow-sm);
+}
+
+.scraped-link-card.failed {
+  opacity: 0.7;
+  border-color: var(--text-warning);
+}
+
+.scraped-link-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.scraped-link-domain {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.scraped-link-failed-badge {
+  font-size: 11px;
+  color: var(--text-warning);
+  background: rgba(255, 170, 0, 0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.scraped-link-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+
+.scraped-link-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.scraped-link-toggle {
+  background: none;
+  border: none;
+  color: var(--accent-blue);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0;
+  margin-left: 8px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.scraped-link-toggle:hover {
+  text-decoration: underline;
+}
+
+.scraped-link-url {
+  font-size: 12px;
+  color: var(--accent-blue);
+  text-decoration: none;
+  word-break: break-all;
+  display: block;
+}
+
+.scraped-link-url:hover {
+  text-decoration: underline;
+}
+
 .spinner {
   width: 20px;
   height: 20px;
@@ -502,6 +594,23 @@
   .stage-loading {
     padding: 12px;
     font-size: 13px;
+  }
+
+  .scraped-links-section {
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .scraped-link-card {
+    padding: 12px;
+  }
+
+  .scraped-link-title {
+    font-size: 14px;
+  }
+
+  .scraped-link-description {
+    font-size: 12px;
   }
 }
 

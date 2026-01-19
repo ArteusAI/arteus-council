@@ -351,7 +351,9 @@ function App() {
         stage2: null,
         stage3: null,
         metadata: null,
+        scrapedLinks: null,
         loading: {
+          scraping: false,
           stage1: false,
           stage2: false,
           stage3: false,
@@ -373,6 +375,34 @@ function App() {
         language,
         (eventType, event) => {
         switch (eventType) {
+          case 'scraping_start':
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              lastMsg.loading.scraping = true;
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'scraping_complete':
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              lastMsg.loading.scraping = false;
+              lastMsg.scrapedLinks = event.data?.links || [];
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'scraping_error':
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              lastMsg.loading.scraping = false;
+              return { ...prev, messages };
+            });
+            break;
+
           case 'stage1_start':
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];

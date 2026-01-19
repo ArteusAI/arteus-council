@@ -7,6 +7,52 @@ import { exportCouncilToPdf } from '../utils/exportPdf';
 import { copyCouncilAsMarkdown } from '../utils/exportMarkdown';
 import './ChatInterface.css';
 
+function ScrapedLinkCard({ link, t }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const hasLongDescription = link.description && link.description.length > 200;
+
+  return (
+    <div className={`scraped-link-card ${link.success ? '' : 'failed'} ${isExpanded ? 'expanded' : ''}`}>
+      <div className="scraped-link-header">
+        <span className="scraped-link-domain">{link.domain}</span>
+        {!link.success && <span className="scraped-link-failed-badge">{t('scrapingFailed')}</span>}
+      </div>
+      {link.success && (
+        <>
+          <div className="scraped-link-title">
+            {link.title || link.url}
+          </div>
+          {link.description && (
+            <div className="scraped-link-description">
+              {isExpanded ? link.description : (
+                hasLongDescription 
+                  ? link.description.slice(0, 200) + '...' 
+                  : link.description
+              )}
+              {hasLongDescription && (
+                <button 
+                  className="scraped-link-toggle"
+                  onClick={() => setIsExpanded(!isExpanded)}
+                >
+                  {isExpanded ? t('showLess') : t('showMore')}
+                </button>
+              )}
+            </div>
+          )}
+        </>
+      )}
+      <a 
+        href={link.url} 
+        target="_blank" 
+        rel="noopener noreferrer" 
+        className="scraped-link-url"
+      >
+        {link.url}
+      </a>
+    </div>
+  );
+}
+
 export default function ChatInterface({
   conversation,
   onSendMessage,
@@ -208,6 +254,23 @@ export default function ChatInterface({
                 </div>
               ) : (
                 <div className="assistant-message">
+                  {/* Scraped Links Info */}
+                  {msg.scrapedLinks && msg.scrapedLinks.length > 0 && (
+                    <div className="scraped-links-section">
+                      {msg.scrapedLinks.map((link, linkIdx) => (
+                        <ScrapedLinkCard key={linkIdx} link={link} t={t} />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Scraping Status */}
+                  {msg.loading?.scraping && (
+                    <div className="stage-loading">
+                      <div className="spinner"></div>
+                      <span>{t('scrapingLoading')}</span>
+                    </div>
+                  )}
+
                   <div className="message-label">{t('assistantLabel')}</div>
 
                   {/* Stage 1 */}

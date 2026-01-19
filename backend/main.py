@@ -28,7 +28,9 @@ from .auth import (
     get_client_ip,
     get_current_user,
     get_current_user_optional,
+    get_user_personal_prompt,
     is_ip_allowed,
+    set_user_personal_prompt,
 )
 from .config import (
     COUNCIL_MODELS,
@@ -36,6 +38,7 @@ from .config import (
     DEFAULT_PREFERRED_MODELS,
     CORS_ALLOW_ORIGINS,
     BACKEND_ROOT_PATH,
+    PERSONALIZATION_TEMPLATES,
 )
 from .council import (
     run_full_council,
@@ -45,6 +48,7 @@ from .council import (
     stage3_synthesize_final,
     calculate_aggregate_rankings,
 )
+from .firecrawl import extract_urls, process_message_links
 
 
 def _prefixed_path(path: str) -> str:
@@ -112,6 +116,18 @@ class Conversation(BaseModel):
     created_at: str
     title: str
     messages: List[Dict[str, Any]]
+
+
+class PersonalPromptRequest(BaseModel):
+    """Request to set user's personal prompt."""
+    personal_prompt: str
+    template_id: str = "custom"
+
+
+class PersonalPromptResponse(BaseModel):
+    """Response with user's personal prompt settings."""
+    personal_prompt: str
+    template_id: str
 
 
 @router.get("/")
@@ -200,6 +216,39 @@ async def list_models():
     }
 
 
+@router.get("/api/personalization-templates")
+async def get_personalization_templates():
+    """Return available personalization prompt templates."""
+    return {"templates": list(PERSONALIZATION_TEMPLATES.values())}
+
+
+@router.get("/api/user/personal-prompt", response_model=PersonalPromptResponse)
+async def get_personal_prompt(user: User = Depends(get_current_user)):
+    """Get user's personalization prompt settings."""
+    settings = await get_user_personal_prompt(user.user_id)
+    return PersonalPromptResponse(
+        personal_prompt=settings["personal_prompt"],
+        template_id=settings["template_id"],
+    )
+
+
+@router.post("/api/user/personal-prompt", response_model=PersonalPromptResponse)
+async def update_personal_prompt(
+    request: PersonalPromptRequest,
+    user: User = Depends(get_current_user),
+):
+    """Update user's personalization prompt settings."""
+    settings = await set_user_personal_prompt(
+        user.user_id,
+        request.personal_prompt,
+        request.template_id,
+    )
+    return PersonalPromptResponse(
+        personal_prompt=settings["personal_prompt"],
+        template_id=settings["template_id"],
+    )
+
+
 @router.post("/api/conversations", response_model=Conversation)
 async def create_conversation(request: CreateConversationRequest, user: User = Depends(get_current_user)):
     """Create a new conversation."""
@@ -250,8 +299,15 @@ async def send_message(conversation_id: str, request: SendMessageRequest, user: 
     # Check if this is the first message
     is_first_message = len(conversation["messages"]) == 0
 
+    # Get user's personalization prompt
+    prompt_settings = await get_user_personal_prompt(user.user_id)
+    personal_prompt = prompt_settings.get("personal_prompt", "")
+
     # Add user message
     storage.add_user_message(user.user_id, conversation_id, request.content)
+
+    # Process links in message
+    enriched_content, link_metadata, scrape_status = await process_message_links(request.content)
 
     # If this is the first message, generate a title
     if is_first_message:
@@ -260,10 +316,11 @@ async def send_message(conversation_id: str, request: SendMessageRequest, user: 
 
     # Run the 3-stage council process
     stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
-        request.content,
+        enriched_content,
         models=request.models,
         chairman_model=request.chairman_model,
         language=request.language,
+        personal_prompt=personal_prompt,
     )
 
     # Add assistant message with all stages
@@ -304,6 +361,10 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
     # Check if this is the first message
     is_first_message = len(conversation["messages"]) == 0
 
+    # Get user's personalization prompt (before entering generator)
+    prompt_settings = await get_user_personal_prompt(user_id)
+    personal_prompt = prompt_settings.get("personal_prompt", "")
+
     def sse_json(data: dict) -> str:
         """Serialize data to JSON for SSE, ensuring proper escaping."""
         return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
@@ -322,6 +383,31 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
             # Add user message
             storage.add_user_message(user_id, conversation_id, request.content)
 
+            # Process links in message
+            urls = extract_urls(request.content)
+            enriched_content = request.content
+            link_metadata = []
+            
+            if urls:
+                logger.info(f"[{conversation_id[:8]}] Scraping {len(urls)} URLs...")
+                yield f"data: {sse_json({'type': 'scraping_start', 'data': {'urls': urls}})}\n\n"
+                
+                try:
+                    # Scraping with timeout to avoid blocking indefinitely
+                    scraping_task = asyncio.create_task(process_message_links(request.content))
+                    while not scraping_task.done():
+                        try:
+                            await asyncio.wait_for(asyncio.shield(scraping_task), timeout=HEARTBEAT_INTERVAL)
+                        except asyncio.TimeoutError:
+                            yield f": heartbeat\n\n"
+                    
+                    enriched_content, link_metadata, scrape_status = scraping_task.result()
+                    logger.info(f"[{conversation_id[:8]}] Scraping complete: {len(link_metadata)} links processed")
+                    yield f"data: {sse_json({'type': 'scraping_complete', 'data': {'links': link_metadata}})}\n\n"
+                except Exception as e:
+                    logger.error(f"[{conversation_id[:8]}] Scraping error: {e}")
+                    yield f"data: {sse_json({'type': 'scraping_error', 'message': str(e)})}\n\n"
+
             # Start title generation in parallel (don't await yet)
             title_task = None
             if is_first_message:
@@ -333,7 +419,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
             yield f"data: {sse_json({'type': 'stage1_start'})}\n\n"
             
             stage1_task = asyncio.create_task(stage1_collect_responses(
-                request.content,
+                enriched_content,
                 models=models_to_use,
                 language=request.language,
             ))
@@ -354,7 +440,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
             yield f"data: {sse_json({'type': 'stage2_start'})}\n\n"
             
             stage2_task = asyncio.create_task(stage2_collect_rankings(
-                request.content,
+                enriched_content,
                 stage1_results,
                 models=models_to_use,
                 language=request.language,
@@ -377,11 +463,12 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
             yield f"data: {sse_json({'type': 'stage3_start'})}\n\n"
             
             stage3_task = asyncio.create_task(stage3_synthesize_final(
-                request.content,
+                enriched_content,
                 stage1_results,
                 stage2_results,
                 chairman_model=chairman_to_use,
                 language=request.language,
+                personal_prompt=personal_prompt,
             ))
             while not stage3_task.done():
                 try:
