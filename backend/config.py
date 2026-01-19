@@ -43,7 +43,7 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 # Council members - list of OpenRouter model identifiers
 COUNCIL_MODELS = [
-    "openai/gpt-5.1",
+    "openai/gpt-5.2",
     "google/gemini-3-pro-preview",
     "anthropic/claude-opus-4.5",
     "qwen/qwen3-max",
@@ -58,7 +58,7 @@ CHAIRMAN_MODEL = "google/gemini-3-pro-preview"
 
 # Default preferred models to preselect in the UI
 DEFAULT_PREFERRED_MODELS = [
-    "openai/gpt-5.1",
+    "openai/gpt-5.2",
     "anthropic/claude-opus-4.5",
     "google/gemini-3-pro-preview"
 ]
