@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef } from 'react';
 import './Sidebar.css';
 import DemosceneEasterEgg from './DemosceneEasterEgg';
 
@@ -15,6 +15,8 @@ export default function Sidebar({
   language,
   onLanguageChange,
   t,
+  user,
+  onLogout,
 }) {
   const [showEasterEgg, setShowEasterEgg] = useState(false);
   const clickCountRef = useRef(0);
@@ -115,6 +117,16 @@ export default function Sidebar({
       </div>
 
       <div className="sidebar-footer">
+        {user && (
+          <div className="user-info">
+            <span className="user-name" title={user.email}>
+              {user.username || user.email}
+            </span>
+            <button className="logout-btn" onClick={onLogout} title={t('logout')}>
+              {t('logout')}
+            </button>
+          </div>
+        )}
         <div className="footer-controls">
           <button 
             className="theme-toggle-btn" 

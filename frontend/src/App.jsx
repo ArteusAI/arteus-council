@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
+import LoginInterface from './components/LoginInterface';
 import { api } from './api';
-import { translate, supportedLanguages } from './i18n';
+import { translate } from './i18n';
 import './App.css';
 
 const normalizeLang = (code) => {
@@ -14,6 +15,9 @@ const normalizeLang = (code) => {
 };
 
 function App() {
+  const [authChecked, setAuthChecked] = useState(false);
+  const [user, setUser] = useState(null);
+  const [ipBypassed, setIpBypassed] = useState(false);
   const [conversations, setConversations] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(() => {
     try {
@@ -87,11 +91,44 @@ function App() {
 
   const t = (key) => translate(language, key);
 
-  // Load conversations on mount
+  // Check authentication on mount
   useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const data = await api.getMe();
+        setIpBypassed(data.ip_bypassed || false);
+        if (data.authenticated) {
+          setUser(data.user);
+        }
+      } catch (error) {
+        console.warn('Auth check failed:', error);
+      } finally {
+        setAuthChecked(true);
+      }
+    };
+    checkAuth();
+  }, []);
+
+  const handleLogin = async (email, password) => {
+    const data = await api.login(email, password);
+    setUser(data.user);
+  };
+
+  const handleLogout = useCallback(() => {
+    api.logout();
+    setUser(null);
+    setConversations([]);
+    setCurrentConversationId(null);
+    setCurrentConversation(null);
+  }, []);
+
+  // Load conversations when authenticated
+  useEffect(() => {
+    if (!authChecked) return;
+    if (!user && !ipBypassed) return;
     loadConversations();
     loadModels();
-  }, []);
+  }, [authChecked, user, ipBypassed]);
 
   // Load conversation details when selected
   useEffect(() => {
@@ -430,6 +467,28 @@ function App() {
     }
   };
 
+  // Show loading state while checking auth
+  if (!authChecked) {
+    return (
+      <div className={`app ${theme}`}>
+        <div className="login-container">
+          <div className="login-card" style={{ textAlign: 'center' }}>
+            <p>{t('checkingAuth')}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login screen if not authenticated and not IP-bypassed
+  if (!user && !ipBypassed) {
+    return (
+      <div className={`app ${theme}`}>
+        <LoginInterface onLogin={handleLogin} t={t} />
+      </div>
+    );
+  }
+
   return (
     <div className={`app ${theme} ${sidebarOpen ? 'sidebar-open' : ''}`}>
       <button 
@@ -461,6 +520,8 @@ function App() {
         language={language}
         onLanguageChange={setLanguageSafe}
         t={t}
+        user={user}
+        onLogout={handleLogout}
       />
       <ChatInterface
         conversation={currentConversation}

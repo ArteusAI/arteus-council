@@ -70,6 +70,8 @@ OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_CORS_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:3000",
+    "https://arteus.us",
+    "https://api.arteus.us",
 ]
 CORS_ALLOW_ORIGINS = _parse_csv_env(os.getenv("CORS_ALLOW_ORIGINS")) or DEFAULT_CORS_ORIGINS
 
@@ -83,3 +85,16 @@ BACKEND_ROOT_PATH = _normalize_root_path(
     or os.getenv("BASE_PATH")
     or os.getenv("BASE_URL")
 )
+
+# MongoDB configuration
+MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://167.235.102.202:27017")
+MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "arteus_ares")
+
+# JWT configuration
+JWT_SECRET = os.getenv("JWT_SECRET", "secret")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "24"))
+
+# IP-based authentication bypass
+ALLOWED_IPS = _parse_csv_env(os.getenv("ALLOWED_IPS", "45.77.54.76"))
+ALLOWED_NETWORKS = _parse_csv_env(os.getenv("ALLOWED_NETWORKS", ""))

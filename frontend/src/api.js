@@ -30,30 +30,78 @@ const resolveApiBase = () => {
 };
 
 const API_BASE = resolveApiBase();
-const SESSION_STORAGE_KEY = 'councilSessionId';
-const SESSION_HEADER = 'X-Session-Id';
+const AUTH_TOKEN_KEY = 'councilAuthToken';
 
-function getSessionId() {
+function getAuthToken() {
   try {
-    const existing = window.localStorage.getItem(SESSION_STORAGE_KEY);
-    if (existing) return existing;
-    const newId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
-    window.localStorage.setItem(SESSION_STORAGE_KEY, newId);
-    return newId;
-  } catch (e) {
-    // Fall back to a random string if localStorage is unavailable
-    return Math.random().toString(36).slice(2);
+    return window.localStorage.getItem(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
   }
 }
 
-function withSession(headers = {}) {
-  return {
-    ...headers,
-    [SESSION_HEADER]: getSessionId(),
-  };
+function setAuthToken(token) {
+  try {
+    if (token) {
+      window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+    } else {
+      window.localStorage.removeItem(AUTH_TOKEN_KEY);
+    }
+  } catch {
+    // localStorage unavailable
+  }
+}
+
+function withAuth(headers = {}) {
+  const token = getAuthToken();
+  if (token) {
+    return {
+      ...headers,
+      Authorization: `Bearer ${token}`,
+    };
+  }
+  return headers;
 }
 
 export const api = {
+  /**
+   * Login with email and password.
+   */
+  async login(email, password) {
+    const response = await fetch(`${API_BASE}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || 'Invalid credentials');
+    }
+    const data = await response.json();
+    setAuthToken(data.access_token);
+    return data;
+  },
+
+  /**
+   * Logout and clear auth token.
+   */
+  logout() {
+    setAuthToken(null);
+  },
+
+  /**
+   * Get current authentication status.
+   */
+  async getMe() {
+    const response = await fetch(`${API_BASE}/api/auth/me`, {
+      headers: withAuth(),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to get auth status');
+    }
+    return response.json();
+  },
+
   /**
    * List available council and chairman models.
    */
@@ -70,7 +118,7 @@ export const api = {
    */
   async listConversations() {
     const response = await fetch(`${API_BASE}/api/conversations`, {
-      headers: withSession(),
+      headers: withAuth(),
     });
     if (!response.ok) {
       throw new Error('Failed to list conversations');
@@ -86,7 +134,7 @@ export const api = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...withSession(),
+        ...withAuth(),
       },
       body: JSON.stringify({}),
     });
@@ -103,7 +151,7 @@ export const api = {
     const response = await fetch(
       `${API_BASE}/api/conversations/${conversationId}`,
       {
-        headers: withSession(),
+        headers: withAuth(),
       }
     );
     if (!response.ok) {
@@ -120,7 +168,7 @@ export const api = {
       `${API_BASE}/api/conversations/${conversationId}`,
       {
         method: 'DELETE',
-        headers: withSession(),
+        headers: withAuth(),
       }
     );
     if (!response.ok) {
@@ -135,7 +183,7 @@ export const api = {
   async deleteAllConversations() {
     const response = await fetch(`${API_BASE}/api/conversations`, {
       method: 'DELETE',
-      headers: withSession(),
+      headers: withAuth(),
     });
     if (!response.ok) {
       throw new Error('Failed to delete conversations');
@@ -161,7 +209,7 @@ export const api = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...withSession(),
+          ...withAuth(),
         },
         body: JSON.stringify(payload),
       }
@@ -196,7 +244,7 @@ export const api = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...withSession(),
+          ...withAuth(),
         },
         body: JSON.stringify(payload),
       }
