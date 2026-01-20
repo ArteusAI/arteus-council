@@ -47,9 +47,11 @@ async def stage1_collect_responses(
     Returns:
         List of dicts with 'model' and 'response' keys
     """
-    system_prompt = base_system_prompt or BASE_SYSTEM_PROMPT
-    context = f"CONTEXT:\n{system_prompt}\n\n"
-    prompt = f"{context}QUESTION: {user_query}{language_instruction(language)}"
+    # Build prompt - only add context if system prompt is provided
+    if base_system_prompt:
+        prompt = f"CONTEXT:\n{base_system_prompt}\n\nQUESTION: {user_query}{language_instruction(language)}"
+    else:
+        prompt = f"{user_query}{language_instruction(language)}"
     messages = [{"role": "user", "content": prompt}]
     models_to_use = models or COUNCIL_MODELS
 
@@ -90,7 +92,6 @@ async def stage2_collect_rankings(
         Tuple of (rankings list, label_to_model mapping)
     """
     models_to_use = models or COUNCIL_MODELS
-    system_prompt = base_system_prompt or BASE_SYSTEM_PROMPT
 
     # Create anonymized labels for responses (Response A, Response B, etc.)
     labels = [chr(65 + i) for i in range(len(stage1_results))]  # A, B, C, ...
@@ -108,11 +109,8 @@ async def stage2_collect_rankings(
     ])
 
     language_note = language_instruction(language)
-    ranking_prompt = f"""You are evaluating different responses to the following question, keeping in mind our company context.
-
-CONTEXT:
-{system_prompt}
-
+    
+    ranking_prompt = f"""You are evaluating different responses to the following question.
 Question: {user_query}
 
 Here are the responses from different models (anonymized):
@@ -187,7 +185,6 @@ async def stage3_synthesize_final(
         Dict with 'model' and 'response' keys
     """
     chairman_to_use = chairman_model or CHAIRMAN_MODEL
-    system_prompt = base_system_prompt or BASE_SYSTEM_PROMPT
 
     # Build comprehensive context for chairman
     stage1_text = "\n\n".join([
@@ -202,11 +199,12 @@ async def stage3_synthesize_final(
 
     language_note = language_instruction(language)
     personalization = build_personalization_section(personal_prompt)
+    
+    # Build context block only if system prompt is provided
+    context_block = f"\nCONTEXT ABOUT OUR COMPANY:\n{base_system_prompt}\n" if base_system_prompt else ""
+    
     chairman_prompt = f"""You are the Chairman of an LLM Council. Multiple AI models have provided responses to a user's question, and then ranked each other's responses.
-
-CONTEXT ABOUT OUR COMPANY:
-{system_prompt}
-
+{context_block}
 Original Question: {user_query}
 
 STAGE 1 - Individual Responses:

@@ -33,7 +33,7 @@ function App() {
   const [selectedModels, setSelectedModels] = useState([]);
   const [chairmanModel, setChairmanModel] = useState('');
   const [baseSystemPrompt, setBaseSystemPrompt] = useState('');
-  const [baseSystemPromptId, setBaseSystemPromptId] = useState('arteus');
+  const [baseSystemPromptId, setBaseSystemPromptId] = useState('custom');
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const logoUrl = 'https://framerusercontent.com/images/G4MFpJVGo4QKdInsGAegy907Em4.png';
   const [language, setLanguage] = useState('ru');
@@ -45,9 +45,22 @@ function App() {
     }
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const abortControllerRef = useRef(null);
   const activeStreamConversationRef = useRef(null);
   const inProgressConversationRef = useRef(null);
+
+  // Check for mobile device on mount
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
+                    || window.innerWidth < 768;
+      setIsMobile(mobile);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const abortCurrentRequest = useCallback(() => {
     if (abortControllerRef.current) {
@@ -207,7 +220,7 @@ function App() {
       setIdentityTemplates(templates);
       
       let promptText = settings.base_system_prompt || '';
-      const promptId = settings.base_system_prompt_id || 'arteus';
+      const promptId = settings.base_system_prompt_id || 'custom';
       
       // Fallback: if text is empty but template is known, fill from templates
       if (!promptText && promptId !== 'custom') {
@@ -472,6 +485,11 @@ function App() {
         });
       };
 
+      // Don't send empty custom prompt - let backend use default
+      const effectiveBasePrompt = (baseSystemPromptId === 'custom' && !baseSystemPrompt.trim()) 
+        ? null 
+        : baseSystemPrompt;
+
       // Send message with streaming
       await api.sendMessageStream(
         streamConversationId,
@@ -479,7 +497,7 @@ function App() {
         selectedModels,
         chairmanModel,
         language,
-        baseSystemPrompt,
+        effectiveBasePrompt,
         (eventType, event) => {
         switch (eventType) {
           case 'scraping_start':
@@ -646,6 +664,20 @@ function App() {
       abortControllerRef.current = null;
     }
   };
+
+  if (isMobile) {
+    return (
+      <div className={`app ${theme} mobile-warning-overlay`}>
+        <div className="mobile-warning-content">
+          <h1>{language === 'ru' ? 'Нинада' : 'Nooo'}</h1>
+          <p>{language === 'ru' ? 'Не игрушки всё это' : 'This is not a toy'}</p>
+          <button className="pill-button" onClick={() => setIsMobile(false)}>
+            {language === 'ru' ? 'Я всё равно хочу' : 'I want it anyway'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // Show loading state while checking auth
   if (!authChecked) {
