@@ -153,6 +153,33 @@ export default function ChatInterface({
     );
   }
 
+  const lastAssistantMessage = conversation.messages
+    .filter(m => m.role === 'assistant')
+    .slice(-1)[0];
+
+  const calculateProgress = (msg) => {
+    if (!msg) return 0;
+    if (msg.stage3 !== null && !msg.loading?.stage3) return 100;
+    if (msg.loading?.stage3) return 90;
+    if (msg.stage2 !== null) return 80;
+    if (msg.loading?.stage2) {
+      const completed = msg.progress?.stage2?.completed?.length || 0;
+      const total = msg.progress?.stage2?.total?.length || 1;
+      return 60 + (completed / total) * 20;
+    }
+    if (msg.stage1 !== null) return 50;
+    if (msg.loading?.stage1) {
+      const completed = msg.progress?.stage1?.completed?.length || 0;
+      const total = msg.progress?.stage1?.total?.length || 1;
+      return 30 + (completed / total) * 20;
+    }
+    if (msg.scrapedLinks !== null) return 20;
+    if (msg.loading?.scraping) return 10;
+    return 5; // Starting
+  };
+
+  const progress = isLoading ? calculateProgress(lastAssistantMessage) : 0;
+
   return (
     <div className="chat-interface">
       <div className="model-controls">
@@ -234,6 +261,13 @@ export default function ChatInterface({
         )}
       </div>
 
+      <div className={`progress-bar-container ${isLoading ? 'visible' : ''}`}>
+        <div 
+          className="progress-bar-fill" 
+          style={{ width: `${progress}%` }}
+        ></div>
+      </div>
+
       <div className="messages-container">
         {conversation.messages.length === 0 ? (
           <div className="empty-state">
@@ -275,18 +309,60 @@ export default function ChatInterface({
 
                   {/* Stage 1 */}
                   {msg.loading?.stage1 && (
-                    <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>{t('stage1Loading')}</span>
+                    <div className="stage-loading-container">
+                      <div className="stage-loading">
+                        <div className="spinner"></div>
+                        <span>{t('stage1Loading')}</span>
+                      </div>
+                      {msg.progress?.stage1?.total?.length > 0 && (
+                        <div className="model-progress-info">
+                          <div className="model-progress-summary">
+                            {msg.progress.stage1.completed.length} / {msg.progress.stage1.total.length} {t('modelsReady')}
+                          </div>
+                          <div className="model-progress-pills">
+                            {msg.progress.stage1.total.map(modelId => {
+                              const isCompleted = msg.progress.stage1.completed.includes(modelId);
+                              const modelName = modelId.split('/')[1] || modelId;
+                              return (
+                                <span key={modelId} className={`model-progress-pill ${isCompleted ? 'completed' : 'pending'}`}>
+                                  {isCompleted && <span className="check-icon">✓</span>}
+                                  {modelName}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                   {msg.stage1 && <Stage1 responses={msg.stage1} t={t} />}
 
                   {/* Stage 2 */}
                   {msg.loading?.stage2 && (
-                    <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>{t('stage2Loading')}</span>
+                    <div className="stage-loading-container">
+                      <div className="stage-loading">
+                        <div className="spinner"></div>
+                        <span>{t('stage2Loading')}</span>
+                      </div>
+                      {msg.progress?.stage2?.total?.length > 0 && (
+                        <div className="model-progress-info">
+                          <div className="model-progress-summary">
+                            {msg.progress.stage2.completed.length} / {msg.progress.stage2.total.length} {t('modelsRanked')}
+                          </div>
+                          <div className="model-progress-pills">
+                            {msg.progress.stage2.total.map(modelId => {
+                              const isCompleted = msg.progress.stage2.completed.includes(modelId);
+                              const modelName = modelId.split('/')[1] || modelId;
+                              return (
+                                <span key={modelId} className={`model-progress-pill ${isCompleted ? 'completed' : 'pending'}`}>
+                                  {isCompleted && <span className="check-icon">✓</span>}
+                                  {modelName}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                   {msg.stage2 && (

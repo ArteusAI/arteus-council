@@ -98,7 +98,7 @@ BACKEND_ROOT_PATH = _normalize_root_path(
 
 # MongoDB configuration
 MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://167.235.102.202:27017")
-MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "arteus_ares")
+MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "arteus")
 
 # JWT configuration
 JWT_SECRET = os.getenv("JWT_SECRET", "secret")
@@ -108,6 +108,13 @@ JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "24"))
 # IP-based authentication bypass
 ALLOWED_IPS = _parse_csv_env(os.getenv("ALLOWED_IPS", "45.77.54.76"))
 ALLOWED_NETWORKS = _parse_csv_env(os.getenv("ALLOWED_NETWORKS", ""))
+
+# Base system prompt to provide company context
+BASE_SYSTEM_PROMPT = """We are Arteus — a technology company that creates next-generation intelligent systems for B2B communications and sales. We don't just build chatbots; we construct entire AI assistant platforms that serve as true digital "copilots" for managers. Our mission is to help businesses scale without increasing headcount, accelerate lead processing, improve conversion rates, and outpace competitors through speed and quality.
+
+Our solutions specialize in intelligent speech systems and RAG platforms. They are capable of understanding complex nomenclature, working with massive document arrays, generating precise answers without "hallucinations," automatically preparing commercial proposals, and initiating follow-ups to keep leads warm. This is a comprehensive architecture where knowledge is always up-to-date, and answers are cross-verified by multiple agents to avoid errors. For example, we have Arteus Data Engine for processing any client data, Arteus Learn — our multi-agent training system, and Arteus Communication for full-scale communication based on this knowledge.
+
+Additionally, we have projects like ARES, which handles automated generation, testing, and optimization of advertising video creatives using artificial intelligence. It helps create advertising campaigns that learn and improve themselves, which is crucial in today's algorithmic advertising models. All this allows our clients to increase conversion without risk, process requests instantly, and automate numerous routine operations."""
 
 # Personalization prompt templates
 PERSONALIZATION_TEMPLATES = {

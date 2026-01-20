@@ -1,8 +1,8 @@
 """3-stage LLM Council orchestration."""
 
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from .openrouter import query_models_parallel, query_model
-from .config import COUNCIL_MODELS, CHAIRMAN_MODEL
+from .config import COUNCIL_MODELS, CHAIRMAN_MODEL, BASE_SYSTEM_PROMPT
 
 
 LANGUAGE_NAMES = {
@@ -31,6 +31,7 @@ async def stage1_collect_responses(
     user_query: str,
     models: List[str] | None = None,
     language: str | None = None,
+    on_model_complete: Optional[Any] = None,
 ) -> List[Dict[str, Any]]:
     """
     Stage 1: Collect individual responses from all council models.
@@ -39,16 +40,18 @@ async def stage1_collect_responses(
         user_query: The user's question
         models: Optional override list of models to query
         language: Optional language preference
+        on_model_complete: Optional callback when a model completes
 
     Returns:
         List of dicts with 'model' and 'response' keys
     """
-    prompt = f"{user_query}{language_instruction(language)}"
+    context = f"CONTEXT:\n{BASE_SYSTEM_PROMPT}\n\n"
+    prompt = f"{context}QUESTION: {user_query}{language_instruction(language)}"
     messages = [{"role": "user", "content": prompt}]
     models_to_use = models or COUNCIL_MODELS
 
     # Query all models in parallel
-    responses = await query_models_parallel(models_to_use, messages)
+    responses = await query_models_parallel(models_to_use, messages, on_model_complete=on_model_complete)
 
     # Format results
     stage1_results = []
@@ -67,6 +70,7 @@ async def stage2_collect_rankings(
     stage1_results: List[Dict[str, Any]],
     models: List[str] | None = None,
     language: str | None = None,
+    on_model_complete: Optional[Any] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
     """
     Stage 2: Each model ranks the anonymized responses.
@@ -75,6 +79,7 @@ async def stage2_collect_rankings(
         user_query: The original user query
         stage1_results: Results from Stage 1
         models: Optional override list of models to use for rankings
+        on_model_complete: Optional callback when a model completes
 
     Returns:
         Tuple of (rankings list, label_to_model mapping)
@@ -97,7 +102,10 @@ async def stage2_collect_rankings(
     ])
 
     language_note = language_instruction(language)
-    ranking_prompt = f"""You are evaluating different responses to the following question:
+    ranking_prompt = f"""You are evaluating different responses to the following question, keeping in mind our company context.
+
+CONTEXT:
+{BASE_SYSTEM_PROMPT}
 
 Question: {user_query}
 
@@ -132,7 +140,7 @@ Now provide your evaluation and ranking:"""
     messages = [{"role": "user", "content": ranking_prompt}]
 
     # Get rankings from all council models in parallel
-    responses = await query_models_parallel(models_to_use, messages)
+    responses = await query_models_parallel(models_to_use, messages, on_model_complete=on_model_complete)
 
     # Format results
     stage2_results = []
@@ -186,6 +194,9 @@ async def stage3_synthesize_final(
     language_note = language_instruction(language)
     personalization = build_personalization_section(personal_prompt)
     chairman_prompt = f"""You are the Chairman of an LLM Council. Multiple AI models have provided responses to a user's question, and then ranked each other's responses.
+
+CONTEXT ABOUT OUR COMPANY:
+{BASE_SYSTEM_PROMPT}
 
 Original Question: {user_query}
 

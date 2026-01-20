@@ -12,10 +12,10 @@ logger = logging.getLogger("llm-council.openrouter")
 async def query_model(
     model: str,
     messages: List[Dict[str, str]],
-    timeout: float = 120.0
+    timeout: float = 300.0
 ) -> Optional[Dict[str, Any]]:
     """
-    Query a single model via OpenRouter API.
+    Query a single model via OpenRouter API with high reasoning effort.
 
     Args:
         model: OpenRouter model identifier (e.g., "openai/gpt-4o")
@@ -33,6 +33,10 @@ async def query_model(
     payload = {
         "model": model,
         "messages": messages,
+        "reasoning": {
+            "effort": "high"
+        },
+        "include_reasoning": True
     }
 
     start_time = time.time()
@@ -48,15 +52,23 @@ async def query_model(
             response.raise_for_status()
 
             data = response.json()
-            message = data['choices'][0]['message']
+            choices = data.get('choices', [])
+            if not choices:
+                logger.error(f"[{short_model}] No choices in response: {data}")
+                return None
+                
+            message = choices[0]['message']
             
             duration = time.time() - start_time
-            content_len = len(message.get('content') or '')
-            logger.info(f"[{short_model}] OK in {duration:.1f}s, response_len={content_len}")
+            content = message.get('content') or ''
+            # Extract reasoning - OpenRouter can return it in different fields
+            reasoning = message.get('reasoning') or message.get('reasoning_content') or message.get('reasoning_details') or ''
+            
+            logger.info(f"[{short_model}] OK in {duration:.1f}s, response_len={len(content)}, reasoning_len={len(reasoning)}")
 
             return {
-                'content': message.get('content'),
-                'reasoning_details': message.get('reasoning_details')
+                'content': content,
+                'reasoning_details': reasoning
             }
 
     except httpx.TimeoutException:
@@ -71,7 +83,8 @@ async def query_model(
 
 async def query_models_parallel(
     models: List[str],
-    messages: List[Dict[str, str]]
+    messages: List[Dict[str, str]],
+    on_model_complete: Optional[Any] = None
 ) -> Dict[str, Optional[Dict[str, Any]]]:
     """
     Query multiple models in parallel.
@@ -79,14 +92,24 @@ async def query_models_parallel(
     Args:
         models: List of OpenRouter model identifiers
         messages: List of message dicts to send to each model
+        on_model_complete: Optional callback function(model, response) called when each model completes
 
     Returns:
         Dict mapping model identifier to response dict (or None if failed)
     """
     import asyncio
 
+    async def _query_and_callback(model):
+        response = await query_model(model, messages)
+        if on_model_complete:
+            if asyncio.iscoroutinefunction(on_model_complete):
+                await on_model_complete(model, response)
+            else:
+                on_model_complete(model, response)
+        return response
+
     # Create tasks for all models
-    tasks = [query_model(model, messages) for model in models]
+    tasks = [_query_and_callback(model) for model in models]
 
     # Wait for all to complete
     responses = await asyncio.gather(*tasks)

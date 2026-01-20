@@ -416,18 +416,40 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
             # Stage 1: Collect responses
             stage1_start = time.time()
             logger.info(f"[{conversation_id[:8]}] Stage 1 starting...")
-            yield f"data: {sse_json({'type': 'stage1_start'})}\n\n"
+            
+            # Track completed models using a simple list
+            completed_stage1_models = []
+            
+            def stage1_callback(model, response):
+                completed_stage1_models.append(model)
+
+            yield f"data: {sse_json({'type': 'stage1_start', 'data': {'models': models_to_use or COUNCIL_MODELS}})}\n\n"
             
             stage1_task = asyncio.create_task(stage1_collect_responses(
                 enriched_content,
                 models=models_to_use,
                 language=request.language,
+                on_model_complete=stage1_callback
             ))
+            
+            last_reported_count = 0
             while not stage1_task.done():
                 try:
                     await asyncio.wait_for(asyncio.shield(stage1_task), timeout=HEARTBEAT_INTERVAL)
                 except asyncio.TimeoutError:
+                    # Send updates for any newly completed models
+                    while last_reported_count < len(completed_stage1_models):
+                        model = completed_stage1_models[last_reported_count]
+                        yield f"data: {sse_json({'type': 'stage1_model_complete', 'data': {'model': model}})}\n\n"
+                        last_reported_count += 1
                     yield f": heartbeat\n\n"
+            
+            # Send any remaining model completions
+            while last_reported_count < len(completed_stage1_models):
+                model = completed_stage1_models[last_reported_count]
+                yield f"data: {sse_json({'type': 'stage1_model_complete', 'data': {'model': model}})}\n\n"
+                last_reported_count += 1
+
             stage1_results = stage1_task.result()
             
             stage1_duration = time.time() - stage1_start
@@ -437,19 +459,38 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
             # Stage 2: Collect rankings
             stage2_start = time.time()
             logger.info(f"[{conversation_id[:8]}] Stage 2 starting...")
-            yield f"data: {sse_json({'type': 'stage2_start'})}\n\n"
+            
+            completed_stage2_models = []
+            
+            def stage2_callback(model, response):
+                completed_stage2_models.append(model)
+
+            yield f"data: {sse_json({'type': 'stage2_start', 'data': {'models': models_to_use or COUNCIL_MODELS}})}\n\n"
             
             stage2_task = asyncio.create_task(stage2_collect_rankings(
                 enriched_content,
                 stage1_results,
                 models=models_to_use,
                 language=request.language,
+                on_model_complete=stage2_callback
             ))
+            
+            last_reported_count = 0
             while not stage2_task.done():
                 try:
                     await asyncio.wait_for(asyncio.shield(stage2_task), timeout=HEARTBEAT_INTERVAL)
                 except asyncio.TimeoutError:
+                    while last_reported_count < len(completed_stage2_models):
+                        model = completed_stage2_models[last_reported_count]
+                        yield f"data: {sse_json({'type': 'stage2_model_complete', 'data': {'model': model}})}\n\n"
+                        last_reported_count += 1
                     yield f": heartbeat\n\n"
+
+            while last_reported_count < len(completed_stage2_models):
+                model = completed_stage2_models[last_reported_count]
+                yield f"data: {sse_json({'type': 'stage2_model_complete', 'data': {'model': model}})}\n\n"
+                last_reported_count += 1
+
             stage2_results, label_to_model = stage2_task.result()
             
             aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)

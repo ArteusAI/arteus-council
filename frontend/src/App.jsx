@@ -193,18 +193,8 @@ function App() {
       if (savedModels) {
         setSelectedModels(savedModels);
       } else {
-        const defaultPreferred =
-          data.default_preferred_models || [
-            'openai/gpt-5.1',
-            'anthropic/claude-sonnet-4.5',
-            'google/gemini-3-pro-preview',
-          ];
-        const defaultSelection = councilList.filter((m) =>
-          defaultPreferred.includes(m)
-        );
-        setSelectedModels(
-          defaultSelection.length ? defaultSelection : councilList.slice(0, 3)
-        );
+        // Default to selecting all available models
+        setSelectedModels(councilList);
       }
 
       if (savedChairman) {
@@ -358,6 +348,10 @@ function App() {
           stage2: false,
           stage3: false,
         },
+        progress: {
+          stage1: { completed: [], total: [] },
+          stage2: { completed: [], total: [] },
+        },
       };
 
       // Add the partial assistant message
@@ -408,6 +402,19 @@ function App() {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.stage1 = true;
+              lastMsg.progress.stage1.total = event.data?.models || [];
+              lastMsg.progress.stage1.completed = [];
+              return { ...prev, messages };
+            });
+            break;
+          
+          case 'stage1_model_complete':
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              if (!lastMsg.progress.stage1.completed.includes(event.data.model)) {
+                lastMsg.progress.stage1.completed = [...lastMsg.progress.stage1.completed, event.data.model];
+              }
               return { ...prev, messages };
             });
             break;
@@ -427,6 +434,19 @@ function App() {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.stage2 = true;
+              lastMsg.progress.stage2.total = event.data?.models || [];
+              lastMsg.progress.stage2.completed = [];
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'stage2_model_complete':
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              if (!lastMsg.progress.stage2.completed.includes(event.data.model)) {
+                lastMsg.progress.stage2.completed = [...lastMsg.progress.stage2.completed, event.data.model];
+              }
               return { ...prev, messages };
             });
             break;
