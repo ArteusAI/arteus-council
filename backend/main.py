@@ -28,9 +28,9 @@ from .auth import (
     get_client_ip,
     get_current_user,
     get_current_user_optional,
-    get_user_personal_prompt,
+    get_user_council_settings,
     is_ip_allowed,
-    set_user_personal_prompt,
+    set_user_council_settings,
 )
 from .config import (
     COUNCIL_MODELS,
@@ -39,6 +39,7 @@ from .config import (
     CORS_ALLOW_ORIGINS,
     BACKEND_ROOT_PATH,
     PERSONALIZATION_TEMPLATES,
+    COUNCIL_IDENTITY_TEMPLATES,
 )
 from .council import (
     run_full_council,
@@ -100,6 +101,7 @@ class SendMessageRequest(BaseModel):
     models: List[str] | None = None
     chairman_model: str | None = None
     language: str | None = None
+    base_system_prompt: str | None = None
 
 
 class ConversationMetadata(BaseModel):
@@ -118,16 +120,20 @@ class Conversation(BaseModel):
     messages: List[Dict[str, Any]]
 
 
-class PersonalPromptRequest(BaseModel):
-    """Request to set user's personal prompt."""
+class CouncilSettingsRequest(BaseModel):
+    """Request to set user's council settings."""
     personal_prompt: str
     template_id: str = "custom"
+    base_system_prompt: str = ""
+    base_system_prompt_id: str = "custom"
 
 
-class PersonalPromptResponse(BaseModel):
-    """Response with user's personal prompt settings."""
+class CouncilSettingsResponse(BaseModel):
+    """Response with user's council settings."""
     personal_prompt: str
     template_id: str
+    base_system_prompt: str
+    base_system_prompt_id: str
 
 
 @router.get("/")
@@ -222,30 +228,42 @@ async def get_personalization_templates():
     return {"templates": list(PERSONALIZATION_TEMPLATES.values())}
 
 
-@router.get("/api/user/personal-prompt", response_model=PersonalPromptResponse)
-async def get_personal_prompt(user: User = Depends(get_current_user)):
-    """Get user's personalization prompt settings."""
-    settings = await get_user_personal_prompt(user.user_id)
-    return PersonalPromptResponse(
+@router.get("/api/council-identity-templates")
+async def get_council_identity_templates():
+    """Return available council identity templates."""
+    return {"templates": list(COUNCIL_IDENTITY_TEMPLATES.values())}
+
+
+@router.get("/api/user/council-settings", response_model=CouncilSettingsResponse)
+async def get_council_settings(user: User = Depends(get_current_user)):
+    """Get user's council settings."""
+    settings = await get_user_council_settings(user.user_id)
+    return CouncilSettingsResponse(
         personal_prompt=settings["personal_prompt"],
         template_id=settings["template_id"],
+        base_system_prompt=settings["base_system_prompt"],
+        base_system_prompt_id=settings["base_system_prompt_id"],
     )
 
 
-@router.post("/api/user/personal-prompt", response_model=PersonalPromptResponse)
-async def update_personal_prompt(
-    request: PersonalPromptRequest,
+@router.post("/api/user/council-settings", response_model=CouncilSettingsResponse)
+async def update_council_settings(
+    request: CouncilSettingsRequest,
     user: User = Depends(get_current_user),
 ):
-    """Update user's personalization prompt settings."""
-    settings = await set_user_personal_prompt(
+    """Update user's council settings."""
+    settings = await set_user_council_settings(
         user.user_id,
         request.personal_prompt,
         request.template_id,
+        request.base_system_prompt,
+        request.base_system_prompt_id,
     )
-    return PersonalPromptResponse(
+    return CouncilSettingsResponse(
         personal_prompt=settings["personal_prompt"],
         template_id=settings["template_id"],
+        base_system_prompt=settings["base_system_prompt"],
+        base_system_prompt_id=settings["base_system_prompt_id"],
     )
 
 
@@ -299,9 +317,12 @@ async def send_message(conversation_id: str, request: SendMessageRequest, user: 
     # Check if this is the first message
     is_first_message = len(conversation["messages"]) == 0
 
-    # Get user's personalization prompt
-    prompt_settings = await get_user_personal_prompt(user.user_id)
-    personal_prompt = prompt_settings.get("personal_prompt", "")
+    # Get user's council settings
+    council_settings = await get_user_council_settings(user.user_id)
+    personal_prompt = council_settings.get("personal_prompt", "")
+    
+    # Use request base_system_prompt if provided, otherwise use user's saved one, otherwise None (which will fallback to default)
+    base_system_prompt = request.base_system_prompt or council_settings.get("base_system_prompt")
 
     # Add user message
     storage.add_user_message(user.user_id, conversation_id, request.content)
@@ -321,6 +342,7 @@ async def send_message(conversation_id: str, request: SendMessageRequest, user: 
         chairman_model=request.chairman_model,
         language=request.language,
         personal_prompt=personal_prompt,
+        base_system_prompt=base_system_prompt,
     )
 
     # Add assistant message with all stages
@@ -361,9 +383,10 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
     # Check if this is the first message
     is_first_message = len(conversation["messages"]) == 0
 
-    # Get user's personalization prompt (before entering generator)
-    prompt_settings = await get_user_personal_prompt(user_id)
-    personal_prompt = prompt_settings.get("personal_prompt", "")
+    # Get user's council settings (before entering generator)
+    council_settings = await get_user_council_settings(user_id)
+    personal_prompt = council_settings.get("personal_prompt", "")
+    base_system_prompt_to_use = request.base_system_prompt or council_settings.get("base_system_prompt")
 
     def sse_json(data: dict) -> str:
         """Serialize data to JSON for SSE, ensuring proper escaping."""
@@ -375,6 +398,9 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
     async def event_generator():
         request_start = time.time()
         logger.info(f"[{conversation_id[:8]}] Stream started, models={request.models}, content_len={len(request.content)}")
+        
+        # Track all running tasks for cleanup on cancellation
+        running_tasks = []
         
         try:
             models_to_use = request.models or None
@@ -395,6 +421,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
                 try:
                     # Scraping with timeout to avoid blocking indefinitely
                     scraping_task = asyncio.create_task(process_message_links(request.content))
+                    running_tasks.append(scraping_task)
                     while not scraping_task.done():
                         try:
                             await asyncio.wait_for(asyncio.shield(scraping_task), timeout=HEARTBEAT_INTERVAL)
@@ -412,6 +439,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
             title_task = None
             if is_first_message:
                 title_task = asyncio.create_task(generate_conversation_title(request.content))
+                running_tasks.append(title_task)
 
             # Stage 1: Collect responses
             stage1_start = time.time()
@@ -429,8 +457,10 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
                 enriched_content,
                 models=models_to_use,
                 language=request.language,
+                base_system_prompt=base_system_prompt_to_use,
                 on_model_complete=stage1_callback
             ))
+            running_tasks.append(stage1_task)
             
             last_reported_count = 0
             while not stage1_task.done():
@@ -472,8 +502,10 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
                 stage1_results,
                 models=models_to_use,
                 language=request.language,
+                base_system_prompt=base_system_prompt_to_use,
                 on_model_complete=stage2_callback
             ))
+            running_tasks.append(stage2_task)
             
             last_reported_count = 0
             while not stage2_task.done():
@@ -510,7 +542,9 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
                 chairman_model=chairman_to_use,
                 language=request.language,
                 personal_prompt=personal_prompt,
+                base_system_prompt=base_system_prompt_to_use,
             ))
+            running_tasks.append(stage3_task)
             while not stage3_task.done():
                 try:
                     await asyncio.wait_for(asyncio.shield(stage3_task), timeout=HEARTBEAT_INTERVAL)
@@ -549,6 +583,13 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
         except asyncio.CancelledError:
             elapsed = time.time() - request_start
             logger.warning(f"[{conversation_id[:8]}] Stream CANCELLED after {elapsed:.1f}s (client disconnected)")
+            # Cancel all running tasks
+            for task in running_tasks:
+                if not task.done():
+                    task.cancel()
+            # Wait for tasks to be cancelled
+            if running_tasks:
+                await asyncio.gather(*running_tasks, return_exceptions=True)
             raise
         except Exception as e:
             elapsed = time.time() - request_start

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import LoginInterface from './components/LoginInterface';
@@ -29,8 +29,11 @@ function App() {
   const [currentConversation, setCurrentConversation] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [availableModels, setAvailableModels] = useState([]);
+  const [identityTemplates, setIdentityTemplates] = useState([]);
   const [selectedModels, setSelectedModels] = useState([]);
   const [chairmanModel, setChairmanModel] = useState('');
+  const [baseSystemPrompt, setBaseSystemPrompt] = useState('');
+  const [baseSystemPromptId, setBaseSystemPromptId] = useState('arteus');
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const logoUrl = 'https://framerusercontent.com/images/G4MFpJVGo4QKdInsGAegy907Em4.png';
   const [language, setLanguage] = useState('ru');
@@ -42,6 +45,18 @@ function App() {
     }
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const abortControllerRef = useRef(null);
+  const activeStreamConversationRef = useRef(null);
+  const inProgressConversationRef = useRef(null);
+
+  const abortCurrentRequest = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    activeStreamConversationRef.current = null;
+    inProgressConversationRef.current = null;
+  }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -133,7 +148,13 @@ function App() {
   // Load conversation details when selected
   useEffect(() => {
     if (currentConversationId) {
-      loadConversation(currentConversationId);
+      // If there's an in-progress conversation state for this ID, restore it
+      if (inProgressConversationRef.current && 
+          inProgressConversationRef.current.id === currentConversationId) {
+        setCurrentConversation(inProgressConversationRef.current);
+      } else {
+        loadConversation(currentConversationId);
+      }
     }
   }, [currentConversationId]);
 
@@ -167,9 +188,37 @@ function App() {
 
   const loadModels = async () => {
     try {
-      const data = await api.listModels();
+      // Load models, council settings, and identity templates in parallel
+      const [data, settings, templatesData] = await Promise.all([
+        api.listModels(),
+        api.getCouncilSettings().catch(e => {
+          console.warn('Failed to load council settings:', e);
+          return { personal_prompt: '', template_id: 'default', base_system_prompt: '', base_system_prompt_id: 'arteus' };
+        }),
+        api.getCouncilIdentityTemplates().catch(e => {
+          console.warn('Failed to load identity templates:', e);
+          return { templates: [] };
+        })
+      ]);
+
       const councilList = data.council_models || [];
+      const templates = templatesData.templates || [];
       setAvailableModels(councilList);
+      setIdentityTemplates(templates);
+      
+      let promptText = settings.base_system_prompt || '';
+      const promptId = settings.base_system_prompt_id || 'arteus';
+      
+      // Fallback: if text is empty but template is known, fill from templates
+      if (!promptText && promptId !== 'custom') {
+        const template = templates.find(t => t.id === promptId);
+        if (template) {
+          promptText = template.prompt;
+        }
+      }
+      
+      setBaseSystemPrompt(promptText);
+      setBaseSystemPromptId(promptId);
 
       // Try to load saved models from sessionStorage
       let savedModels = null;
@@ -262,11 +311,24 @@ function App() {
   };
 
   const handleSelectConversation = (id) => {
+    // Save current in-progress state if there's an active stream for the current conversation
+    if (activeStreamConversationRef.current && currentConversation && 
+        currentConversation.id === activeStreamConversationRef.current) {
+      inProgressConversationRef.current = currentConversation;
+    }
+    
     setCurrentConversationId(id);
+    // Update loading state based on whether there's an active stream for this conversation
+    setIsLoading(activeStreamConversationRef.current === id);
   };
 
   const handleDeleteConversation = async (id) => {
     try {
+      // Abort ongoing request if deleting current conversation
+      if (currentConversationId === id) {
+        abortCurrentRequest();
+        setIsLoading(false);
+      }
       await api.deleteConversation(id);
       setConversations((prev) => prev.filter((c) => c.id !== id));
       if (currentConversationId === id) {
@@ -280,6 +342,9 @@ function App() {
 
   const handleDeleteAllConversations = async () => {
     try {
+      // Abort any ongoing request
+      abortCurrentRequest();
+      setIsLoading(false);
       await api.deleteAllConversations();
       setConversations([]);
       setCurrentConversationId(null);
@@ -321,19 +386,43 @@ function App() {
     }
   };
 
+  const handleUpdateBaseSystemPrompt = async (newPrompt, newPromptId = 'custom') => {
+    setBaseSystemPrompt(newPrompt);
+    setBaseSystemPromptId(newPromptId);
+    try {
+      // Get current settings first to preserve personal prompt
+      const settings = await api.getCouncilSettings();
+      await api.setCouncilSettings(
+        settings.personal_prompt,
+        settings.template_id,
+        newPrompt,
+        newPromptId
+      );
+    } catch (error) {
+      console.error('Failed to save base system prompt:', error);
+    }
+  };
+
   const handleSendMessage = async (content) => {
     if (!currentConversationId) return;
     if (!selectedModels || selectedModels.length === 0) return;
+
+    // Abort any previous request
+    abortCurrentRequest();
+
+    // Create new AbortController for this request
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    
+    // Track which conversation this stream belongs to
+    const streamConversationId = currentConversationId;
+    activeStreamConversationRef.current = streamConversationId;
 
     setIsLoading(true);
     try {
       // Optimistically add user message to UI
       const userMessage = { role: 'user', content };
-      setCurrentConversation((prev) => ({
-        ...prev,
-        messages: [...prev.messages, userMessage],
-      }));
-
+      
       // Create a partial assistant message that will be updated progressively
       const assistantMessage = {
         role: 'assistant',
@@ -354,23 +443,47 @@ function App() {
         },
       };
 
-      // Add the partial assistant message
-      setCurrentConversation((prev) => ({
-        ...prev,
-        messages: [...prev.messages, assistantMessage],
-      }));
+      // Add both messages and initialize the in-progress state
+      setCurrentConversation((prev) => {
+        const updated = {
+          ...prev,
+          messages: [...prev.messages, userMessage, assistantMessage],
+        };
+        inProgressConversationRef.current = updated;
+        return updated;
+      });
+
+      // Helper to update conversation state
+      const updateConversationState = (updater) => {
+        // Update in-progress ref if we're not viewing this conversation
+        if (inProgressConversationRef.current?.id === streamConversationId) {
+          inProgressConversationRef.current = updater(inProgressConversationRef.current);
+        }
+        
+        setCurrentConversation((prev) => {
+          // Only update if we're still viewing this conversation
+          if (prev?.id !== streamConversationId) {
+            return prev;
+          }
+          const updated = updater(prev);
+          // Also keep the ref in sync
+          inProgressConversationRef.current = updated;
+          return updated;
+        });
+      };
 
       // Send message with streaming
       await api.sendMessageStream(
-        currentConversationId,
+        streamConversationId,
         content,
         selectedModels,
         chairmanModel,
         language,
+        baseSystemPrompt,
         (eventType, event) => {
         switch (eventType) {
           case 'scraping_start':
-            setCurrentConversation((prev) => {
+            updateConversationState((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.scraping = true;
@@ -379,7 +492,7 @@ function App() {
             break;
 
           case 'scraping_complete':
-            setCurrentConversation((prev) => {
+            updateConversationState((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.scraping = false;
@@ -389,7 +502,7 @@ function App() {
             break;
 
           case 'scraping_error':
-            setCurrentConversation((prev) => {
+            updateConversationState((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.scraping = false;
@@ -398,7 +511,7 @@ function App() {
             break;
 
           case 'stage1_start':
-            setCurrentConversation((prev) => {
+            updateConversationState((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.stage1 = true;
@@ -409,7 +522,7 @@ function App() {
             break;
           
           case 'stage1_model_complete':
-            setCurrentConversation((prev) => {
+            updateConversationState((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               if (!lastMsg.progress.stage1.completed.includes(event.data.model)) {
@@ -420,7 +533,7 @@ function App() {
             break;
 
           case 'stage1_complete':
-            setCurrentConversation((prev) => {
+            updateConversationState((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.stage1 = event.data;
@@ -430,7 +543,7 @@ function App() {
             break;
 
           case 'stage2_start':
-            setCurrentConversation((prev) => {
+            updateConversationState((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.stage2 = true;
@@ -441,7 +554,7 @@ function App() {
             break;
 
           case 'stage2_model_complete':
-            setCurrentConversation((prev) => {
+            updateConversationState((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               if (!lastMsg.progress.stage2.completed.includes(event.data.model)) {
@@ -452,7 +565,7 @@ function App() {
             break;
 
           case 'stage2_complete':
-            setCurrentConversation((prev) => {
+            updateConversationState((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.stage2 = event.data;
@@ -463,7 +576,7 @@ function App() {
             break;
 
           case 'stage3_start':
-            setCurrentConversation((prev) => {
+            updateConversationState((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.stage3 = true;
@@ -472,7 +585,7 @@ function App() {
             break;
 
           case 'stage3_complete':
-            setCurrentConversation((prev) => {
+            updateConversationState((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.stage3 = event.data;
@@ -487,9 +600,15 @@ function App() {
             break;
 
           case 'complete':
-            // Stream complete, reload conversations list
+            // Stream complete
             loadConversations();
-            setIsLoading(false);
+            activeStreamConversationRef.current = null;
+            inProgressConversationRef.current = null;
+            // Reload the conversation to get the saved state
+            if (streamConversationId === currentConversationId) {
+              loadConversation(streamConversationId);
+              setIsLoading(false);
+            }
             notifyJobComplete(
               t('jobFinishedTitle'),
               t('jobFinishedBody')
@@ -498,15 +617,24 @@ function App() {
 
           case 'error':
             console.error('Stream error:', event.message);
-            setIsLoading(false);
+            activeStreamConversationRef.current = null;
+            inProgressConversationRef.current = null;
+            if (streamConversationId === currentConversationId) {
+              setIsLoading(false);
+            }
             break;
 
           default:
             console.log('Unknown event type:', eventType);
         }
-        }
+        },
+        abortController.signal
       );
     } catch (error) {
+      // Don't handle abort errors - they're intentional
+      if (error.name === 'AbortError') {
+        return;
+      }
       console.error('Failed to send message:', error);
       // Remove optimistic messages on error
       setCurrentConversation((prev) => ({
@@ -514,6 +642,8 @@ function App() {
         messages: prev.messages.slice(0, -2),
       }));
       setIsLoading(false);
+    } finally {
+      abortControllerRef.current = null;
     }
   };
 
@@ -534,7 +664,7 @@ function App() {
   if (!user && !ipBypassed) {
     return (
       <div className={`app ${theme}`}>
-        <LoginInterface onLogin={handleLogin} t={t} />
+        <LoginInterface onLogin={handleLogin} t={t} theme={theme} />
       </div>
     );
   }
@@ -583,7 +713,12 @@ function App() {
         onResetModels={resetSelectedModels}
         chairmanModel={chairmanModel}
         onSelectChairman={setChairmanModel}
+        baseSystemPrompt={baseSystemPrompt}
+        baseSystemPromptId={baseSystemPromptId}
+        identityTemplates={identityTemplates}
+        onUpdateBaseSystemPrompt={handleUpdateBaseSystemPrompt}
         modelsLoaded={modelsLoaded}
+        language={language}
         t={t}
       />
     </div>

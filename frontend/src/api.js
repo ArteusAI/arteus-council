@@ -125,23 +125,34 @@ export const api = {
   },
 
   /**
-   * Get user's personal prompt settings.
+   * Get available council identity templates.
    */
-  async getPersonalPrompt() {
-    const response = await fetch(`${API_BASE}/api/user/personal-prompt`, {
-      headers: withAuth(),
-    });
+  async getCouncilIdentityTemplates() {
+    const response = await fetch(`${API_BASE}/api/council-identity-templates`);
     if (!response.ok) {
-      throw new Error('Failed to get personal prompt');
+      throw new Error('Failed to get council identity templates');
     }
     return response.json();
   },
 
   /**
-   * Update user's personal prompt settings.
+   * Get user's council settings (personal prompt and base system prompt).
    */
-  async setPersonalPrompt(personalPrompt, templateId = 'custom') {
-    const response = await fetch(`${API_BASE}/api/user/personal-prompt`, {
+  async getCouncilSettings() {
+    const response = await fetch(`${API_BASE}/api/user/council-settings`, {
+      headers: withAuth(),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to get council settings');
+    }
+    return response.json();
+  },
+
+  /**
+   * Update user's council settings.
+   */
+  async setCouncilSettings(personalPrompt, templateId = 'custom', baseSystemPrompt = '', baseSystemPromptId = 'custom') {
+    const response = await fetch(`${API_BASE}/api/user/council-settings`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -150,10 +161,12 @@ export const api = {
       body: JSON.stringify({
         personal_prompt: personalPrompt,
         template_id: templateId,
+        base_system_prompt: baseSystemPrompt,
+        base_system_prompt_id: baseSystemPromptId,
       }),
     });
     if (!response.ok) {
-      throw new Error('Failed to update personal prompt');
+      throw new Error('Failed to update council settings');
     }
     return response.json();
   },
@@ -239,13 +252,16 @@ export const api = {
   /**
    * Send a message in a conversation.
    */
-  async sendMessage(conversationId, content, models, chairmanModel, language) {
+  async sendMessage(conversationId, content, models, chairmanModel, language, baseSystemPrompt) {
     const payload = { content, language };
     if (models && models.length > 0) {
       payload.models = models;
     }
     if (chairmanModel) {
       payload.chairman_model = chairmanModel;
+    }
+    if (baseSystemPrompt) {
+      payload.base_system_prompt = baseSystemPrompt;
     }
 
     const response = await fetch(
@@ -271,16 +287,22 @@ export const api = {
    * @param {string} content - The message content
    * @param {string[]} models - Optional list of council models
    * @param {string} chairmanModel - Optional chairman override
+   * @param {string} language - Optional language preference
+   * @param {string} baseSystemPrompt - Optional base system prompt override
    * @param {function} onEvent - Callback function for each event: (eventType, data) => void
+   * @param {AbortSignal} signal - Optional AbortSignal to cancel the request
    * @returns {Promise<void>}
    */
-  async sendMessageStream(conversationId, content, models, chairmanModel, language, onEvent) {
+  async sendMessageStream(conversationId, content, models, chairmanModel, language, baseSystemPrompt, onEvent, signal) {
     const payload = { content, language };
     if (models && models.length > 0) {
       payload.models = models;
     }
     if (chairmanModel) {
       payload.chairman_model = chairmanModel;
+    }
+    if (baseSystemPrompt) {
+      payload.base_system_prompt = baseSystemPrompt;
     }
 
     const response = await fetch(
@@ -292,6 +314,7 @@ export const api = {
           ...withAuth(),
         },
         body: JSON.stringify(payload),
+        signal,
       }
     );
 
@@ -341,6 +364,11 @@ export const api = {
         }
       }
     } catch (streamError) {
+      // Handle abort gracefully
+      if (streamError.name === 'AbortError') {
+        console.log('Request aborted');
+        return;
+      }
       // Handle stream read errors (e.g., HTTP2 protocol errors, network issues)
       console.error('Stream read error:', streamError);
       onEvent('error', { 

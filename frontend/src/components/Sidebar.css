@@ -34,13 +34,10 @@
 }
 
 .sidebar-logo {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  object-fit: cover;
-  border: 1px solid var(--border-primary);
-  background: var(--bg-primary);
-  transition: transform 0.3s ease, border-color 0.3s ease;
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  transition: transform 0.3s ease;
 }
 
 .sidebar-title {

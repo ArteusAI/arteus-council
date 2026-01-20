@@ -31,6 +31,7 @@ async def stage1_collect_responses(
     user_query: str,
     models: List[str] | None = None,
     language: str | None = None,
+    base_system_prompt: str | None = None,
     on_model_complete: Optional[Any] = None,
 ) -> List[Dict[str, Any]]:
     """
@@ -40,12 +41,14 @@ async def stage1_collect_responses(
         user_query: The user's question
         models: Optional override list of models to query
         language: Optional language preference
+        base_system_prompt: Optional override for company context
         on_model_complete: Optional callback when a model completes
 
     Returns:
         List of dicts with 'model' and 'response' keys
     """
-    context = f"CONTEXT:\n{BASE_SYSTEM_PROMPT}\n\n"
+    system_prompt = base_system_prompt or BASE_SYSTEM_PROMPT
+    context = f"CONTEXT:\n{system_prompt}\n\n"
     prompt = f"{context}QUESTION: {user_query}{language_instruction(language)}"
     messages = [{"role": "user", "content": prompt}]
     models_to_use = models or COUNCIL_MODELS
@@ -70,6 +73,7 @@ async def stage2_collect_rankings(
     stage1_results: List[Dict[str, Any]],
     models: List[str] | None = None,
     language: str | None = None,
+    base_system_prompt: str | None = None,
     on_model_complete: Optional[Any] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
     """
@@ -79,12 +83,14 @@ async def stage2_collect_rankings(
         user_query: The original user query
         stage1_results: Results from Stage 1
         models: Optional override list of models to use for rankings
+        base_system_prompt: Optional override for company context
         on_model_complete: Optional callback when a model completes
 
     Returns:
         Tuple of (rankings list, label_to_model mapping)
     """
     models_to_use = models or COUNCIL_MODELS
+    system_prompt = base_system_prompt or BASE_SYSTEM_PROMPT
 
     # Create anonymized labels for responses (Response A, Response B, etc.)
     labels = [chr(65 + i) for i in range(len(stage1_results))]  # A, B, C, ...
@@ -105,7 +111,7 @@ async def stage2_collect_rankings(
     ranking_prompt = f"""You are evaluating different responses to the following question, keeping in mind our company context.
 
 CONTEXT:
-{BASE_SYSTEM_PROMPT}
+{system_prompt}
 
 Question: {user_query}
 
@@ -164,6 +170,7 @@ async def stage3_synthesize_final(
     chairman_model: str | None = None,
     language: str | None = None,
     personal_prompt: str | None = None,
+    base_system_prompt: str | None = None,
 ) -> Dict[str, Any]:
     """
     Stage 3: Chairman synthesizes final response.
@@ -174,11 +181,13 @@ async def stage3_synthesize_final(
         stage2_results: Rankings from Stage 2
         chairman_model: Optional override for chairman model
         personal_prompt: Optional user personalization prompt
+        base_system_prompt: Optional override for company context
 
     Returns:
         Dict with 'model' and 'response' keys
     """
     chairman_to_use = chairman_model or CHAIRMAN_MODEL
+    system_prompt = base_system_prompt or BASE_SYSTEM_PROMPT
 
     # Build comprehensive context for chairman
     stage1_text = "\n\n".join([
@@ -196,7 +205,7 @@ async def stage3_synthesize_final(
     chairman_prompt = f"""You are the Chairman of an LLM Council. Multiple AI models have provided responses to a user's question, and then ranked each other's responses.
 
 CONTEXT ABOUT OUR COMPANY:
-{BASE_SYSTEM_PROMPT}
+{system_prompt}
 
 Original Question: {user_query}
 
@@ -359,6 +368,7 @@ async def run_full_council(
     chairman_model: str | None = None,
     language: str | None = None,
     personal_prompt: str | None = None,
+    base_system_prompt: str | None = None,
 ) -> Tuple[List, List, Dict, Dict]:
     """
     Run the complete 3-stage council process.
@@ -369,13 +379,17 @@ async def run_full_council(
         chairman_model: Optional override for chairman synthesis model
         language: Optional language preference
         personal_prompt: Optional user personalization prompt
+        base_system_prompt: Optional override for company context
 
     Returns:
         Tuple of (stage1_results, stage2_results, stage3_result, metadata)
     """
     # Stage 1: Collect individual responses
     stage1_results = await stage1_collect_responses(
-        user_query, models=models, language=language
+        user_query,
+        models=models,
+        language=language,
+        base_system_prompt=base_system_prompt
     )
 
     # If no models responded successfully, return error
@@ -391,6 +405,7 @@ async def run_full_council(
         stage1_results,
         models=models,
         language=language,
+        base_system_prompt=base_system_prompt
     )
 
     # Calculate aggregate rankings
@@ -404,6 +419,7 @@ async def run_full_council(
         chairman_model=chairman_model,
         language=language,
         personal_prompt=personal_prompt,
+        base_system_prompt=base_system_prompt
     )
 
     # Prepare metadata

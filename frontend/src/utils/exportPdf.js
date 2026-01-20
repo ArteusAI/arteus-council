@@ -392,11 +392,33 @@ function renderMarkdownToPdf(doc, text, startY, config) {
 }
 
 /**
+ * Helper to fetch image and convert to Base64 for jsPDF.
+ */
+async function getImageData(url) {
+  try {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.readAsDataURL(blob);
+    });
+  } catch (e) {
+    console.error('Failed to load image:', url, e);
+    return null;
+  }
+}
+
+/**
  * Export council response to PDF with Cyrillic support.
  */
 export async function exportCouncilToPdf(userQuestion, assistantMessage, t) {
-  // Load fonts first
-  const fonts = await loadFonts();
+  // Load fonts and logo in parallel
+  const baseUrl = import.meta.env.BASE_URL || '/';
+  const [fonts, logoData] = await Promise.all([
+    loadFonts(),
+    getImageData(`${baseUrl}council_logo_white.png`)
+  ]);
   
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -427,11 +449,19 @@ export async function exportCouncilToPdf(userQuestion, assistantMessage, t) {
 
   // --- PAGE 1: Summary ---
   
-  // Title
+  // Logo and Title
+  let titleX = marginLeft;
+  if (logoData) {
+    const logoWidth = 20;
+    const logoHeight = 20;
+    doc.addImage(logoData, 'PNG', marginLeft, y - 12, logoWidth, logoHeight);
+    titleX += logoWidth + 6;
+  }
+
   doc.setFontSize(22);
   if (fonts) doc.setFont('DejaVu', 'bold');
   doc.setTextColor(30, 58, 138);
-  doc.text('Arteus Council', marginLeft, y);
+  doc.text('Arteus Council', titleX, y);
   y += 12;
 
   // Date

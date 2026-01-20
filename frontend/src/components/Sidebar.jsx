@@ -56,6 +56,11 @@ export default function Sidebar({
     }
   };
 
+  const baseUrl = import.meta.env.BASE_URL || '/';
+  const logoSrc = theme === 'dark' 
+    ? `${baseUrl}council_logo_black.png`
+    : `${baseUrl}council_logo_white.png`;
+
   return (
     <div className={`sidebar ${isOpen ? 'open' : ''}`}>
       {showEasterEgg && (
@@ -75,7 +80,7 @@ export default function Sidebar({
         >
           <img
             className="sidebar-logo"
-            src="https://framerusercontent.com/images/G4MFpJVGo4QKdInsGAegy907Em4.png"
+            src={logoSrc}
             alt="Arteus Council logo"
           />
           <div className="sidebar-title">Arteus Council</div>

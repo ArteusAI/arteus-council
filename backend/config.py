@@ -98,7 +98,7 @@ BACKEND_ROOT_PATH = _normalize_root_path(
 
 # MongoDB configuration
 MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://167.235.102.202:27017")
-MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "arteus")
+MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "arteus_art_agora")
 
 # JWT configuration
 JWT_SECRET = os.getenv("JWT_SECRET", "secret")
@@ -116,7 +116,39 @@ Our solutions specialize in intelligent speech systems and RAG platforms. They a
 
 Additionally, we have projects like ARES, which handles automated generation, testing, and optimization of advertising video creatives using artificial intelligence. It helps create advertising campaigns that learn and improve themselves, which is crucial in today's algorithmic advertising models. All this allows our clients to increase conversion without risk, process requests instantly, and automate numerous routine operations."""
 
-# Personalization prompt templates
+# Council identity templates (system prompt)
+COUNCIL_IDENTITY_TEMPLATES = {
+    "arteus": {
+        "id": "arteus",
+        "name": "Arteus Council",
+        "name_ru": "Совет Arteus",
+        "prompt": BASE_SYSTEM_PROMPT,
+    },
+    "neutral": {
+        "id": "neutral",
+        "name": "Neutral Assistant",
+        "name_ru": "Нейтральный помощник",
+        "prompt": "You are a helpful, neutral AI assistant. Your goal is to provide accurate and objective information.",
+    },
+    "expert": {
+        "id": "expert",
+        "name": "Expert Consultant",
+        "name_ru": "Эксперт-консультант",
+        "prompt": "You are a professional consultant with deep expertise in various fields. Provide highly analytical, structured, and evidence-based responses.",
+    },
+    "medical": {
+        "id": "medical",
+        "name": "Medical Council",
+        "name_ru": "Медицинский совет",
+        "prompt": "You are a council of medical experts. Provide information based on medical science and best practices. Always include a disclaimer that this is not medical advice.",
+    },
+    "legal": {
+        "id": "legal",
+        "name": "Legal Council",
+        "name_ru": "Юридический совет",
+        "prompt": "You are a council of legal experts. Provide structured legal analysis and information. Always include a disclaimer that this is not legal advice.",
+    },
+}
 PERSONALIZATION_TEMPLATES = {
     "default": {
         "id": "default",
