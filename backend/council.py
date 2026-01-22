@@ -48,10 +48,11 @@ async def stage1_collect_responses(
         List of dicts with 'model' and 'response' keys
     """
     # Build prompt - only add context if system prompt is provided
+    detailed_instruction = "\n\nPlease provide a comprehensive, detailed answer covering all nuances and aspects of the question."
     if base_system_prompt:
-        prompt = f"CONTEXT:\n{base_system_prompt}\n\nQUESTION: {user_query}{language_instruction(language)}"
+        prompt = f"CONTEXT:\n{base_system_prompt}\n\nQUESTION: {user_query}{detailed_instruction}{language_instruction(language)}"
     else:
-        prompt = f"{user_query}{language_instruction(language)}"
+        prompt = f"{user_query}{detailed_instruction}{language_instruction(language)}"
     messages = [{"role": "user", "content": prompt}]
     models_to_use = models or COUNCIL_MODELS
 

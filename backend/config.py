@@ -60,7 +60,8 @@ COUNCIL_MODELS = [
     "x-ai/grok-4",
     "moonshotai/kimi-k2-thinking",
     "deepseek/deepseek-v3.2-speciale",
-    "mistralai/mistral-large-2512"
+    "mistralai/mistral-large-2512",
+    "z-ai/glm-4.7"
 ]
 
 # Chairman model - synthesizes final response
