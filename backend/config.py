@@ -44,6 +44,16 @@ def _normalize_root_path(value: str | None) -> str:
 # OpenRouter API key
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
+# GigaChat credentials
+GIGACHAT_CREDENTIALS = os.getenv("GIGACHAT_CREDENTIALS")
+GIGACHAT_SCOPE = os.getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS")
+GIGACHAT_VERIFY_SSL = os.getenv("GIGACHAT_VERIFY_SSL", "False").lower() == "true"
+GIGACHAT_PARALLEL_DISABLED = os.getenv("GIGACHAT_PARALLEL_DISABLED", "True").lower() == "true"
+
+# YandexGPT credentials
+YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
+YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
+
 # Firecrawl API key for URL scraping
 FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY")
 if not FIRECRAWL_API_KEY:
@@ -61,7 +71,9 @@ COUNCIL_MODELS = [
     "moonshotai/kimi-k2-thinking",
     "deepseek/deepseek-v3.2-speciale",
     "mistralai/mistral-large-2512",
-    "z-ai/glm-4.7"
+    "z-ai/glm-4.7",
+    "gigachat/GigaChat-2-Max",
+    "yandex/aliceai-llm"
 ]
 
 # Chairman model - synthesizes final response

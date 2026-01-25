@@ -32,6 +32,7 @@ async def query_model(
 
     payload = {
         "model": model,
+        "temperature": 0.8,
         "messages": messages,
         "reasoning": {
             "effort": "high"
