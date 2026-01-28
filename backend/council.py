@@ -233,6 +233,9 @@ IMPORTANT FORMATTING RULES:
 - When creating numbered lists, count items carefully and ensure the count in the header matches the actual number of items
 - Double-check any "X items" or "X points" claims against the actual content
 - Use consistent formatting throughout: either all bullet points or all numbered items within a section
+- CRITICAL: All URLs must be formatted as proper Markdown links with descriptive text: [Link text](URL)
+- Never output bare URLs - always wrap them in Markdown link syntax
+- For demo/video links, use descriptive text like "Watch demo", "View demonstration", etc.
 
 Provide a clear, well-reasoned final answer that represents the council's collective wisdom:"""
     if language_note:
@@ -242,7 +245,7 @@ Provide a clear, well-reasoned final answer that represents the council's collec
     messages = [{"role": "user", "content": chairman_prompt}]
 
     # Query the chairman model with lower temperature for more consistent output
-    response = await query_model(chairman_to_use, messages, temperature=0.5)
+    response = await query_model(chairman_to_use, messages, temperature=0.7)
 
     if response is None:
         # Fallback if chairman fails

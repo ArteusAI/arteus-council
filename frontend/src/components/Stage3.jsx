@@ -29,9 +29,6 @@ export default function Stage3({ finalResponse, t, modelAliases = {} }) {
     <div className="stage stage3">
       <h3 className="stage-title">{t('stage3Title')}</h3>
       <div className="final-response">
-        <div className="chairman-label">
-          {t('chairmanLabel')}: {getModelName(finalResponse.model)}
-        </div>
         <div className="final-text markdown-content">
           <ReactMarkdown components={markdownComponents}>{finalResponse.response}</ReactMarkdown>
         </div>

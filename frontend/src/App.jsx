@@ -771,6 +771,32 @@ function App() {
     }
   };
 
+  // Block mobile devices
+  if (isMobile) {
+    const baseUrl = import.meta.env.BASE_URL || '/';
+    return (
+      <div className={`app ${theme} mobile-block-screen`}>
+        <div className="mobile-block-content">
+          <img 
+            src={`${baseUrl}underconstruction.jpg`} 
+            alt="Under Construction" 
+            className="mobile-block-image"
+          />
+          <h1 className="mobile-block-title">Under Construction</h1>
+          <p className="mobile-block-text">
+            {language === 'ru' 
+              ? 'Мобильная версия в разработке. Пожалуйста, воспользуйтесь веб-версией с компьютера.'
+              : 'Mobile version is under development. Please use the web version from your computer.'}
+          </p>
+          <blockquote className="mobile-block-quote">
+            «В конце концов всё получается. Если не получилось — значит, это ещё не конец.»
+            <cite>— Фернандо Сабино</cite>
+          </blockquote>
+        </div>
+      </div>
+    );
+  }
+
   // Show loading state while checking config or auth
   if (!configLoaded || !authChecked) {
     return (

@@ -16,7 +16,7 @@ logger = logging.getLogger("llm-council.firecrawl")
 FIRECRAWL_API_URL = "https://api.firecrawl.dev/v1/scrape"
 
 URL_PATTERN = re.compile(
-    r'https?://[^\s<>\[\]()"\',;]+(?<![.,;:!?\)])',
+    r'(?:https?://)?(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:/[^\s<>\[\]()"\',;]*)?(?<![.,;:!?\)])',
     re.IGNORECASE
 )
 
@@ -108,9 +108,16 @@ async def scrape_url(url: str, timeout: float = 30.0) -> ScrapedLink:
 
 
 def extract_urls(text: str) -> list[str]:
-    """Extract unique URLs from text."""
+    """Extract unique URLs from text and normalize them."""
     urls = URL_PATTERN.findall(text)
-    return list(dict.fromkeys(urls))
+    # Add https:// prefix to URLs without protocol
+    normalized_urls = []
+    for url in urls:
+        if not url.startswith(('http://', 'https://')):
+            normalized_urls.append(f'https://{url}')
+        else:
+            normalized_urls.append(url)
+    return list(dict.fromkeys(normalized_urls))
 
 
 async def scrape_urls_parallel(urls: list[str]) -> list[ScrapedLink]:
