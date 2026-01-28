@@ -13,7 +13,8 @@ logger = logging.getLogger("llm-council.llm")
 async def query_model(
     model: str,
     messages: List[Dict[str, str]],
-    timeout: float = 300.0
+    timeout: float = 180.0,
+    temperature: float = 0.8
 ) -> Optional[Dict[str, Any]]:
     """
     Query a model using the appropriate provider based on the model identifier.
@@ -22,6 +23,7 @@ async def query_model(
         model: Model identifier (e.g., "openai/gpt-4o" or "gigachat/GigaChat-2-Max")
         messages: List of message dicts with 'role' and 'content'
         timeout: Request timeout in seconds
+        temperature: Model temperature (0.0-1.0)
 
     Returns:
         Response dict with 'content' and optional 'reasoning_details', or None if failed
@@ -32,7 +34,7 @@ async def query_model(
         return await yandex_adapter.query_model(model, messages, timeout)
     else:
         # Default to OpenRouter for everything else
-        return await openrouter.query_model(model, messages, timeout)
+        return await openrouter.query_model(model, messages, timeout, temperature)
 
 
 async def query_models_parallel(
