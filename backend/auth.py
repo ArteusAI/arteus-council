@@ -18,6 +18,7 @@ from .config import (
     JWT_ALGORITHM,
     JWT_EXPIRE_HOURS,
     JWT_SECRET,
+    LEADS_MODE,
     MONGODB_DB_NAME,
     MONGODB_URL,
     BASE_SYSTEM_PROMPT,
@@ -51,6 +52,24 @@ class TokenData(BaseModel):
     username: str
     email: str
     roles: list[str]
+
+
+class LeadUser(BaseModel):
+    """Lead user model for leads mode."""
+
+    session_id: str
+    email: Optional[str] = None
+    telegram: Optional[str] = None
+    is_lead: bool = True
+
+
+class LeadTokenData(BaseModel):
+    """JWT token payload for leads."""
+
+    session_id: str
+    email: Optional[str] = None
+    telegram: Optional[str] = None
+    token_type: str = "lead"
 
 
 def get_mongo_client() -> AsyncIOMotorClient:
@@ -148,27 +167,39 @@ def get_client_ip(request: Request) -> str:
     return ""
 
 
-async def authenticate_user(email: str, password: str) -> Optional[dict]:
-    """Authenticate a user against MongoDB."""
+async def authenticate_user(identifier: str, password: str) -> Optional[dict]:
+    """
+    Authenticate a user against MongoDB.
+    
+    Args:
+        identifier: Email or Telegram username
+        password: User password
+        
+    Returns:
+        User document or None if authentication fails
+    """
     try:
         db = get_database()
         operators = db["operators"]
 
         user = await operators.find_one({
-            "email": email,
+            "$or": [
+                {"email": identifier},
+                {"telegram": identifier}
+            ],
             "is_deleted": {"$ne": True}
         })
 
         if user is None:
-            logger.info(f"User not found: {email}")
+            logger.info(f"User not found: {identifier}")
             return None
 
         hashed = user.get("_password", "")
         if not verify_password(password, hashed):
-            logger.info(f"Invalid password for: {email}")
+            logger.info(f"Invalid password for: {identifier}")
             return None
 
-        logger.info(f"User authenticated: {email}")
+        logger.info(f"User authenticated: {identifier}")
         return user
     except Exception as e:
         logger.error(f"MongoDB error during authentication: {e}")
@@ -310,4 +341,89 @@ async def get_current_user_optional(
         username=token_data.username,
         email=token_data.email,
         roles=token_data.roles,
+    )
+
+
+# Leads mode authentication functions
+
+def create_leads_token(session_id: str, email: Optional[str], telegram: Optional[str]) -> str:
+    """Create a JWT access token for a lead user."""
+    data = {
+        "session_id": session_id,
+        "email": email,
+        "telegram": telegram,
+        "token_type": "lead",
+    }
+    return create_access_token(data)
+
+
+def decode_leads_token(token: str) -> Optional[LeadTokenData]:
+    """Decode and validate a leads JWT access token."""
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        if payload.get("token_type") != "lead":
+            return None
+        return LeadTokenData(
+            session_id=payload.get("session_id", ""),
+            email=payload.get("email"),
+            telegram=payload.get("telegram"),
+            token_type="lead",
+        )
+    except JWTError as e:
+        logger.warning(f"Leads JWT decode error: {e}")
+        return None
+
+
+async def get_current_lead(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> LeadUser:
+    """FastAPI dependency to get the current lead user (leads mode only)."""
+    if not LEADS_MODE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Leads mode is not enabled",
+        )
+
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token_data = decode_leads_token(credentials.credentials)
+    if token_data is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return LeadUser(
+        session_id=token_data.session_id,
+        email=token_data.email,
+        telegram=token_data.telegram,
+    )
+
+
+async def get_current_lead_optional(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> Optional[LeadUser]:
+    """FastAPI dependency to get the current lead if authenticated, or None."""
+    if not LEADS_MODE:
+        return None
+
+    if credentials is None:
+        return None
+
+    token_data = decode_leads_token(credentials.credentials)
+    if token_data is None:
+        return None
+
+    return LeadUser(
+        session_id=token_data.session_id,
+        email=token_data.email,
+        telegram=token_data.telegram,
     )

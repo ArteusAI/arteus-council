@@ -178,6 +178,23 @@ body {
   color: var(--text-secondary);
 }
 
+.markdown-content a {
+  color: #64b5f6;
+  text-decoration: underline;
+  text-decoration-color: rgba(100, 181, 246, 0.4);
+  text-underline-offset: 2px;
+  transition: all 0.2s ease;
+}
+
+.markdown-content a:hover {
+  color: #90caf9;
+  text-decoration-color: rgba(144, 202, 249, 0.8);
+}
+
+.markdown-content a:visited {
+  color: #9fa8da;
+}
+
 /* Mobile responsive global styles */
 @media (max-width: 768px) {
   body {

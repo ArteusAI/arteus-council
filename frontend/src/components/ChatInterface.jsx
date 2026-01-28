@@ -7,6 +7,10 @@ import { exportCouncilToPdf } from '../utils/exportPdf';
 import { copyCouncilAsMarkdown } from '../utils/exportMarkdown';
 import './ChatInterface.css';
 
+const markdownComponents = {
+  a: ({ node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />
+};
+
 function ScrapedLinkCard({ link, t }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const hasMarkdown = link.markdown && link.markdown.length > 0;
@@ -53,7 +57,7 @@ function ScrapedLinkCard({ link, t }) {
           )}
           {isExpanded && hasMarkdown && (
             <div className="scraped-link-markdown">
-              <ReactMarkdown>{link.markdown}</ReactMarkdown>
+              <ReactMarkdown components={markdownComponents}>{link.markdown}</ReactMarkdown>
             </div>
           )}
         </>
@@ -87,6 +91,9 @@ export default function ChatInterface({
   modelsLoaded,
   language,
   t,
+  hideIdentitySelector = false,
+  leadsMode = false,
+  modelAliases = {},
 }) {
   const [input, setInput] = useState('');
   const [showModelPicker, setShowModelPicker] = useState(false);
@@ -94,6 +101,11 @@ export default function ChatInterface({
   const [copiedIndex, setCopiedIndex] = useState(null);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
+
+  // URL detection for leads mode (accepts URLs with or without protocol)
+  const urlPattern = /(https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(\/[^\s<>"{}|\\^`[\]]*)?/gi;
+  const hasUrl = urlPattern.test(input);
+  const leadsUrlRequired = leadsMode && !hasUrl && input.trim().length > 0;
 
   // Auto-resize textarea
   useEffect(() => {
@@ -133,7 +145,7 @@ export default function ChatInterface({
 
   const handleCopyMarkdown = async (userQuestion, msg, index) => {
     try {
-      await copyCouncilAsMarkdown(userQuestion, msg, t);
+      await copyCouncilAsMarkdown(userQuestion, msg, t, modelAliases);
       setCopiedIndex(index);
       setTimeout(() => setCopiedIndex(null), 2000);
     } catch (err) {
@@ -151,6 +163,8 @@ export default function ChatInterface({
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    // In leads mode, require URL in message
+    if (leadsMode && !hasUrl) return;
     if (input.trim() && !isLoading && selectedModels.length > 0 && modelsLoaded) {
       onSendMessage(input);
       // Draft is removed by the useEffect that watches input when it's set to empty
@@ -166,7 +180,7 @@ export default function ChatInterface({
     }
   };
 
-  const shortName = (model) => model.split('/')[1] || model;
+  const shortName = (model) => modelAliases[model] || model.split('/')[1] || model;
   const selectedShortNames = selectedModels.map(shortName);
   const selectionSummary = selectedShortNames.length
     ? `${selectedShortNames.slice(0, 3).join(', ')}${
@@ -228,13 +242,13 @@ export default function ChatInterface({
           <div>
             <div className="model-controls-title">{t('councilTitle')}</div>
             <div className="model-controls-subtitle">
-              {selectionSummary} • {t('chairmanShort')}: {chairmanShortName}
+              {selectionSummary}{!leadsMode && ` • ${t('chairmanShort')}: ${chairmanShortName}`}
             </div>
           </div>
           <div className="model-controls-actions">
             <button
               type="button"
-              className={`icon-button ${showModelPicker ? 'active' : ''}`}
+              className={`icon-button ${showModelPicker ? 'active' : ''} ${leadsMode ? 'with-text' : ''}`}
               onClick={() => setShowModelPicker((prev) => !prev)}
               aria-expanded={showModelPicker}
               title={t('chooseModels')}
@@ -244,18 +258,21 @@ export default function ChatInterface({
                 <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.52 5.888A3 3 0 1 1 12 15Z"/>
                 <path d="M12 5v14"/>
               </svg>
+              {leadsMode && <span className="icon-button-label">{t('selectModels')}</span>}
             </button>
-            <button
-              type="button"
-              className={`icon-button settings-button ${showBasePromptSettings ? 'active' : ''}`}
-              onClick={() => setShowBasePromptSettings((prev) => !prev)}
-              title={t('basePromptSettings')}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="3"/>
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-              </svg>
-            </button>
+            {!hideIdentitySelector && (
+              <button
+                type="button"
+                className={`icon-button settings-button ${showBasePromptSettings ? 'active' : ''}`}
+                onClick={() => setShowBasePromptSettings((prev) => !prev)}
+                title={t('basePromptSettings')}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="3"/>
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+              </button>
+            )}
           </div>
         </div>
 
@@ -296,24 +313,26 @@ export default function ChatInterface({
               <div className="model-warning">{t('selectAtLeastOne')}</div>
             )}
 
-            <div className="chairman-row">
-              <label className="chairman-label" htmlFor="chairman-select">
-                {t('chairmanModel')}
-              </label>
-              <select
-                id="chairman-select"
-                className="chairman-select"
-                value={chairmanModel}
-                onChange={(e) => onSelectChairman(e.target.value)}
-                disabled={!availableModels.length}
-              >
-                {[...new Set([chairmanModel, ...availableModels].filter(Boolean))].map((model) => (
-                  <option key={model} value={model}>
-                    {shortName(model)}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {!leadsMode && (
+              <div className="chairman-row">
+                <label className="chairman-label" htmlFor="chairman-select">
+                  {t('chairmanModel')}
+                </label>
+                <select
+                  id="chairman-select"
+                  className="chairman-select"
+                  value={chairmanModel}
+                  onChange={(e) => onSelectChairman(e.target.value)}
+                  disabled={!availableModels.length}
+                >
+                  {[...new Set([chairmanModel, ...availableModels].filter(Boolean))].map((model) => (
+                    <option key={model} value={model}>
+                      {shortName(model)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         )}
 
@@ -389,7 +408,7 @@ export default function ChatInterface({
                   <div className="message-label">{t('youLabel')}</div>
                   <div className="message-content">
                     <div className="markdown-content">
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      <ReactMarkdown components={markdownComponents}>{msg.content}</ReactMarkdown>
                     </div>
                   </div>
                 </div>
@@ -429,11 +448,10 @@ export default function ChatInterface({
                           <div className="model-progress-pills">
                             {msg.progress.stage1.total.map(modelId => {
                               const isCompleted = msg.progress.stage1.completed.includes(modelId);
-                              const modelName = modelId.split('/')[1] || modelId;
                               return (
                                 <span key={modelId} className={`model-progress-pill ${isCompleted ? 'completed' : 'pending'}`}>
                                   {isCompleted && <span className="check-icon">✓</span>}
-                                  {modelName}
+                                  {shortName(modelId)}
                                 </span>
                               );
                             })}
@@ -442,7 +460,7 @@ export default function ChatInterface({
                       )}
                     </div>
                   )}
-                  {msg.stage1 && <Stage1 responses={msg.stage1} t={t} />}
+                  {msg.stage1 && <Stage1 responses={msg.stage1} t={t} modelAliases={modelAliases} />}
 
                   {/* Stage 2 */}
                   {msg.loading?.stage2 && (
@@ -459,11 +477,10 @@ export default function ChatInterface({
                           <div className="model-progress-pills">
                             {msg.progress.stage2.total.map(modelId => {
                               const isCompleted = msg.progress.stage2.completed.includes(modelId);
-                              const modelName = modelId.split('/')[1] || modelId;
                               return (
                                 <span key={modelId} className={`model-progress-pill ${isCompleted ? 'completed' : 'pending'}`}>
                                   {isCompleted && <span className="check-icon">✓</span>}
-                                  {modelName}
+                                  {shortName(modelId)}
                                 </span>
                               );
                             })}
@@ -478,6 +495,7 @@ export default function ChatInterface({
                       labelToModel={msg.metadata?.label_to_model}
                       aggregateRankings={msg.metadata?.aggregate_rankings}
                       t={t}
+                      modelAliases={modelAliases}
                     />
                   )}
 
@@ -488,10 +506,33 @@ export default function ChatInterface({
                       <span>{t('stage3Loading')}</span>
                     </div>
                   )}
-                  {msg.stage3 && <Stage3 finalResponse={msg.stage3} t={t} />}
+                  {msg.stage3 && <Stage3 finalResponse={msg.stage3} t={t} modelAliases={modelAliases} />}
+
+                  {/* Retry button for interrupted processing */}
+                  {msg.stage3 && msg.stage3.response && msg.stage3.response.includes('Processing was interrupted') && (
+                    <div className="message-actions">
+                      <button
+                        type="button"
+                        className="action-button interrupted-retry-button"
+                        onClick={() => {
+                          const userMsg = conversation.messages[index - 1];
+                          if (userMsg?.content) {
+                            onSendMessage(userMsg.content);
+                          }
+                        }}
+                        title={t('retryQuestion')}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="23 4 23 10 17 10"/>
+                          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                        </svg>
+                        {t('retryQuestion')}
+                      </button>
+                    </div>
+                  )}
 
                   {/* Action bar - shown when stage 3 is complete */}
-                  {msg.stage3 && !msg.loading?.stage3 && (
+                  {msg.stage3 && !msg.loading?.stage3 && !msg.stage3.response?.includes('Processing was interrupted') && (
                     <div className="message-actions">
                       <button
                         type="button"
@@ -499,7 +540,7 @@ export default function ChatInterface({
                         onClick={() => {
                           const userMsg = conversation.messages[index - 1];
                           const userQuestion = userMsg?.content || '';
-                          exportCouncilToPdf(userQuestion, msg, t);
+                          exportCouncilToPdf(userQuestion, msg, t, modelAliases);
                         }}
                         title={t('exportPdf')}
                       >
@@ -539,6 +580,7 @@ export default function ChatInterface({
           <div className="loading-indicator">
             <div className="spinner"></div>
             <span>{t('consulting')}</span>
+            <div className="loading-warning">{t('keepTabOpen')}</div>
           </div>
         )}
 
@@ -546,30 +588,38 @@ export default function ChatInterface({
       </div>
 
       {conversation.messages.length === 0 && (
-        <form className="input-form" onSubmit={handleSubmit}>
-          <textarea
-            ref={textareaRef}
-            className="message-input"
-            placeholder={t('askPlaceholder')}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={isLoading || selectedModels.length === 0 || !modelsLoaded}
-            rows={1}
-          />
-          <button
-            type="submit"
-            className="send-button"
-            disabled={
-              !input.trim() ||
-              isLoading ||
-              selectedModels.length === 0 ||
-              !modelsLoaded
-            }
-          >
-            {t('send')}
-          </button>
-        </form>
+        <div className="input-form-container">
+          <form className="input-form" onSubmit={handleSubmit}>
+            <textarea
+              ref={textareaRef}
+              className="message-input"
+              placeholder={leadsMode ? (t('askPlaceholderLeads') || 'Paste a URL to analyze...') : t('askPlaceholder')}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={isLoading || selectedModels.length === 0 || !modelsLoaded}
+              rows={1}
+            />
+            <button
+              type="submit"
+              className="send-button"
+              disabled={
+                !input.trim() ||
+                isLoading ||
+                selectedModels.length === 0 ||
+                !modelsLoaded ||
+                (leadsMode && !hasUrl)
+              }
+            >
+              {t('send')}
+            </button>
+          </form>
+          {leadsUrlRequired && (
+            <div className="leads-url-note">
+              {t('leadsUrlRequired') || 'Please include a URL in your message'}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

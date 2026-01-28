@@ -1,8 +1,14 @@
 """3-stage LLM Council orchestration."""
 
 from typing import List, Dict, Any, Tuple, Optional
-from .llm import query_models_parallel, query_model
-from .config import COUNCIL_MODELS, CHAIRMAN_MODEL, BASE_SYSTEM_PROMPT
+from .openrouter import query_models_parallel, query_model
+from .config import (
+    COUNCIL_MODELS,
+    CHAIRMAN_MODEL,
+    BASE_SYSTEM_PROMPT,
+    LEADS_MODE,
+    LEADS_CHAIRMAN_MODEL,
+)
 
 
 LANGUAGE_NAMES = {
@@ -185,7 +191,10 @@ async def stage3_synthesize_final(
     Returns:
         Dict with 'model' and 'response' keys
     """
-    chairman_to_use = chairman_model or CHAIRMAN_MODEL
+    if LEADS_MODE:
+        chairman_to_use = LEADS_CHAIRMAN_MODEL
+    else:
+        chairman_to_use = chairman_model or CHAIRMAN_MODEL
 
     # Build comprehensive context for chairman
     stage1_text = "\n\n".join([
@@ -219,6 +228,12 @@ Your task as Chairman is to synthesize all of this information into a single, co
 - The peer rankings and what they reveal about response quality
 - Any patterns of agreement or disagreement
 {personalization}
+
+IMPORTANT FORMATTING RULES:
+- When creating numbered lists, count items carefully and ensure the count in the header matches the actual number of items
+- Double-check any "X items" or "X points" claims against the actual content
+- Use consistent formatting throughout: either all bullet points or all numbered items within a section
+
 Provide a clear, well-reasoned final answer that represents the council's collective wisdom:"""
     if language_note:
         target_language = LANGUAGE_NAMES.get(language.lower(), "the user's language")
@@ -226,8 +241,8 @@ Provide a clear, well-reasoned final answer that represents the council's collec
 
     messages = [{"role": "user", "content": chairman_prompt}]
 
-    # Query the chairman model
-    response = await query_model(chairman_to_use, messages)
+    # Query the chairman model with lower temperature for more consistent output
+    response = await query_model(chairman_to_use, messages, temperature=0.5)
 
     if response is None:
         # Fallback if chairman fails

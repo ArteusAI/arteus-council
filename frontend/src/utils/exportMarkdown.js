@@ -1,7 +1,8 @@
 /**
  * Format council response as Markdown text for clipboard.
  */
-export function formatCouncilAsMarkdown(userQuestion, assistantMessage, t) {
+export function formatCouncilAsMarkdown(userQuestion, assistantMessage, t, modelAliases = {}) {
+  const getModelName = (model) => modelAliases[model] || model.split('/')[1] || model;
   const lines = [];
   const now = new Date();
   
@@ -18,7 +19,7 @@ export function formatCouncilAsMarkdown(userQuestion, assistantMessage, t) {
   
   // Final Answer (Stage 3)
   if (assistantMessage.stage3) {
-    const chairmanName = assistantMessage.stage3.model?.split('/')[1] || assistantMessage.stage3.model || 'Chairman';
+    const chairmanName = assistantMessage.stage3.model ? getModelName(assistantMessage.stage3.model) : 'Chairman';
     lines.push(`## ${t('stage3Title')} (${chairmanName})`);
     lines.push('');
     lines.push(assistantMessage.stage3.response);
@@ -38,8 +39,7 @@ export function formatCouncilAsMarkdown(userQuestion, assistantMessage, t) {
       : Object.entries(stage1Data);
     
     for (const [model, response] of entries) {
-      const modelName = String(model).split('/')[1] || String(model);
-      lines.push(`### ${modelName}`);
+      lines.push(`### ${getModelName(model)}`);
       lines.push('');
       const responseText = typeof response === 'string' ? response : String(response || '');
       lines.push(responseText);
@@ -63,10 +63,9 @@ export function formatCouncilAsMarkdown(userQuestion, assistantMessage, t) {
     lines.push('|-------|-----|-------|');
     
     for (const [model, data] of sortedModels) {
-      const modelName = model.split('/')[1] || model;
       const avg = typeof data.average === 'number' ? data.average.toFixed(2) : 'N/A';
       const votes = data.votes ?? 0;
-      lines.push(`| ${modelName} | ${avg} | ${votes} |`);
+      lines.push(`| ${getModelName(model)} | ${avg} | ${votes} |`);
     }
     lines.push('');
   }
@@ -77,8 +76,8 @@ export function formatCouncilAsMarkdown(userQuestion, assistantMessage, t) {
 /**
  * Copy council response as Markdown to clipboard.
  */
-export async function copyCouncilAsMarkdown(userQuestion, assistantMessage, t) {
-  const markdown = formatCouncilAsMarkdown(userQuestion, assistantMessage, t);
+export async function copyCouncilAsMarkdown(userQuestion, assistantMessage, t, modelAliases = {}) {
+  const markdown = formatCouncilAsMarkdown(userQuestion, assistantMessage, t, modelAliases);
   await navigator.clipboard.writeText(markdown);
   return markdown;
 }

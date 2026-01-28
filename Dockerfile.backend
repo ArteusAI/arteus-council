@@ -9,14 +9,14 @@ WORKDIR /app
 # Install uv for faster/locked dependency installs
 RUN pip install --no-cache-dir uv
 
-# Copy dependency manifests first for better build caching
+# Copy dependency manifests and application code
 COPY pyproject.toml uv.lock ./
+COPY backend ./backend
 
 # Install dependencies into the system environment
 RUN uv pip install --system .
 
-# Copy application code
-COPY backend ./backend
+# Copy data directory
 COPY data ./data
 
 EXPOSE 8001

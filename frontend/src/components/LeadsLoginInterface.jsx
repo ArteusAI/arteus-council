@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import './LoginInterface.css';
 
-function LoginInterface({ onLogin, error: externalError, t, theme, initialTelegram = '' }) {
+function LeadsLoginInterface({ onRegister, error: externalError, t, theme, initialTelegram = '' }) {
   const [telegram, setTelegram] = useState(initialTelegram);
-  const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -14,9 +13,8 @@ function LoginInterface({ onLogin, error: externalError, t, theme, initialTelegr
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!telegram.trim() || !password.trim()) {
-      setError(t?.('loginFieldsRequired') || 'Please provide Telegram and password');
+    if (!telegram.trim()) {
+      setError(t?.('leadsContactRequired') || 'Please provide your Telegram');
       return;
     }
 
@@ -24,9 +22,9 @@ function LoginInterface({ onLogin, error: externalError, t, theme, initialTelegr
     setError('');
 
     try {
-      await onLogin(telegram.trim(), password);
+      await onRegister(null, telegram.trim());
     } catch (err) {
-      setError(err.message || t?.('loginFailed') || 'Login failed');
+      setError(err.message || t?.('registrationFailed') || 'Registration failed');
     } finally {
       setIsLoading(false);
     }
@@ -42,7 +40,7 @@ function LoginInterface({ onLogin, error: externalError, t, theme, initialTelegr
             className="login-logo"
           />
           <h1 className="login-title">{t?.('appName') || 'Arteus Council'}</h1>
-          <p className="login-subtitle">{t?.('loginSubtitle') || 'Sign in to continue'}</p>
+          <p className="login-subtitle">{t?.('leadsSubtitle') || 'Enter your contact to continue'}</p>
         </div>
 
         <form className="login-form" onSubmit={handleSubmit}>
@@ -57,28 +55,15 @@ function LoginInterface({ onLogin, error: externalError, t, theme, initialTelegr
               type="text"
               value={telegram}
               onChange={(e) => setTelegram(e.target.value)}
-              placeholder={t?.('telegramPlaceholder') || 'Enter your Telegram username'}
+              placeholder={t?.('telegramPlaceholder') || '@username'}
               disabled={isLoading}
-              autoComplete="username"
+              autoComplete="off"
               autoFocus
             />
           </div>
 
-          <div className="login-field">
-            <label htmlFor="password">{t?.('password') || 'Password'}</label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={t?.('passwordPlaceholder') || 'Enter your password'}
-              disabled={isLoading}
-              autoComplete="current-password"
-            />
-          </div>
-
           <button type="submit" className="login-button" disabled={isLoading}>
-            {isLoading ? (t?.('signingIn') || 'Signing in...') : (t?.('signIn') || 'Sign In')}
+            {isLoading ? (t?.('continuing') || 'Continuing...') : (t?.('continue') || 'Continue')}
           </button>
         </form>
       </div>
@@ -86,4 +71,4 @@ function LoginInterface({ onLogin, error: externalError, t, theme, initialTelegr
   );
 }
 
-export default LoginInterface;
+export default LeadsLoginInterface;

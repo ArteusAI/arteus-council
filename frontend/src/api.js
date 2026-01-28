@@ -65,6 +65,48 @@ function withAuth(headers = {}) {
 
 export const api = {
   /**
+   * Get application configuration (including leads mode status).
+   */
+  async getConfig() {
+    const response = await fetch(`${API_BASE}/api/config`);
+    if (!response.ok) {
+      throw new Error('Failed to get config');
+    }
+    return response.json();
+  },
+
+  /**
+   * Register as a lead (leads mode only).
+   */
+  async registerLead(email, telegram) {
+    const response = await fetch(`${API_BASE}/api/leads/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, telegram }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || 'Registration failed');
+    }
+    const data = await response.json();
+    setAuthToken(data.access_token);
+    return data;
+  },
+
+  /**
+   * Get current lead user info (leads mode only).
+   */
+  async getLeadMe() {
+    const response = await fetch(`${API_BASE}/api/leads/me`, {
+      headers: withAuth(),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to get lead info');
+    }
+    return response.json();
+  },
+
+  /**
    * Login with email and password.
    */
   async login(email, password) {
@@ -370,6 +412,176 @@ export const api = {
         return;
       }
       // Handle stream read errors (e.g., HTTP2 protocol errors, network issues)
+      console.error('Stream read error:', streamError);
+      onEvent('error', { 
+        type: 'error', 
+        message: `Connection interrupted: ${streamError.message || 'network error'}` 
+      });
+      throw streamError;
+    } finally {
+      try {
+        reader.releaseLock();
+      } catch {
+        // Reader already released
+      }
+    }
+  },
+
+  // ============================================================================
+  // Leads Mode Conversation Methods
+  // ============================================================================
+
+  /**
+   * List all conversations for a lead (leads mode only).
+   */
+  async listLeadsConversations() {
+    const response = await fetch(`${API_BASE}/api/leads/conversations`, {
+      headers: withAuth(),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to list conversations');
+    }
+    return response.json();
+  },
+
+  /**
+   * Create a new conversation for a lead (leads mode only).
+   */
+  async createLeadsConversation() {
+    const response = await fetch(`${API_BASE}/api/leads/conversations`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...withAuth(),
+      },
+      body: JSON.stringify({}),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to create conversation');
+    }
+    return response.json();
+  },
+
+  /**
+   * Get a specific conversation for a lead (leads mode only).
+   */
+  async getLeadsConversation(conversationId) {
+    const response = await fetch(
+      `${API_BASE}/api/leads/conversations/${conversationId}`,
+      {
+        headers: withAuth(),
+      }
+    );
+    if (!response.ok) {
+      throw new Error('Failed to get conversation');
+    }
+    return response.json();
+  },
+
+  /**
+   * Delete a specific conversation for a lead (leads mode only).
+   */
+  async deleteLeadsConversation(conversationId) {
+    const response = await fetch(
+      `${API_BASE}/api/leads/conversations/${conversationId}`,
+      {
+        method: 'DELETE',
+        headers: withAuth(),
+      }
+    );
+    if (!response.ok) {
+      throw new Error('Failed to delete conversation');
+    }
+    return response.json();
+  },
+
+  /**
+   * Delete all conversations for a lead (leads mode only).
+   */
+  async deleteAllLeadsConversations() {
+    const response = await fetch(`${API_BASE}/api/leads/conversations`, {
+      method: 'DELETE',
+      headers: withAuth(),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to delete conversations');
+    }
+    return response.json();
+  },
+
+  /**
+   * Send a message and receive streaming updates for a lead (leads mode only).
+   */
+  async sendLeadsMessageStream(conversationId, content, models, chairmanModel, language, onEvent, signal) {
+    const payload = { content, language };
+    if (models && models.length > 0) {
+      payload.models = models;
+    }
+    if (chairmanModel) {
+      payload.chairman_model = chairmanModel;
+    }
+    // Note: base_system_prompt is not sent in leads mode - it's fixed on the backend
+
+    const response = await fetch(
+      `${API_BASE}/api/leads/conversations/${conversationId}/message/stream`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...withAuth(),
+        },
+        body: JSON.stringify(payload),
+        signal,
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Failed to send message');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim();
+            if (!data) continue;
+            try {
+              const event = JSON.parse(data);
+              onEvent(event.type, event);
+            } catch (e) {
+              console.error('Failed to parse SSE event:', e);
+            }
+          }
+        }
+      }
+
+      if (buffer.startsWith('data: ')) {
+        const data = buffer.slice(6).trim();
+        if (data) {
+          try {
+            const event = JSON.parse(data);
+            onEvent(event.type, event);
+          } catch (e) {
+            console.error('Failed to parse final SSE event:', e);
+          }
+        }
+      }
+    } catch (streamError) {
+      if (streamError.name === 'AbortError') {
+        console.log('Request aborted');
+        return;
+      }
       console.error('Stream read error:', streamError);
       onEvent('error', { 
         type: 'error', 

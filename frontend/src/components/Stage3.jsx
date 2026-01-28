@@ -2,7 +2,11 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import './Stage3.css';
 
-export default function Stage3({ finalResponse, t }) {
+const markdownComponents = {
+  a: ({ node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />
+};
+
+export default function Stage3({ finalResponse, t, modelAliases = {} }) {
   const [copied, setCopied] = useState(false);
 
   if (!finalResponse) {
@@ -19,15 +23,17 @@ export default function Stage3({ finalResponse, t }) {
     }
   };
 
+  const getModelName = (model) => modelAliases[model] || model.split('/')[1] || model;
+
   return (
     <div className="stage stage3">
       <h3 className="stage-title">{t('stage3Title')}</h3>
       <div className="final-response">
         <div className="chairman-label">
-          {t('chairmanLabel')}: {finalResponse.model.split('/')[1] || finalResponse.model}
+          {t('chairmanLabel')}: {getModelName(finalResponse.model)}
         </div>
         <div className="final-text markdown-content">
-          <ReactMarkdown>{finalResponse.response}</ReactMarkdown>
+          <ReactMarkdown components={markdownComponents}>{finalResponse.response}</ReactMarkdown>
         </div>
         <button 
           className={`copy-response-btn ${copied ? 'copied' : ''}`}

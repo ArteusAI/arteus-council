@@ -12,7 +12,8 @@ logger = logging.getLogger("llm-council.openrouter")
 async def query_model(
     model: str,
     messages: List[Dict[str, str]],
-    timeout: float = 300.0
+    timeout: float = 180.0,
+    temperature: float = 0.8
 ) -> Optional[Dict[str, Any]]:
     """
     Query a single model via OpenRouter API with high reasoning effort.
@@ -21,6 +22,7 @@ async def query_model(
         model: OpenRouter model identifier (e.g., "openai/gpt-4o")
         messages: List of message dicts with 'role' and 'content'
         timeout: Request timeout in seconds
+        temperature: Model temperature (0.0-1.0)
 
     Returns:
         Response dict with 'content' and optional 'reasoning_details', or None if failed
@@ -32,7 +34,7 @@ async def query_model(
 
     payload = {
         "model": model,
-        "temperature": 0.8,
+        "temperature": temperature,
         "messages": messages,
         "reasoning": {
             "effort": "high"
@@ -85,23 +87,37 @@ async def query_model(
 async def query_models_parallel(
     models: List[str],
     messages: List[Dict[str, str]],
-    on_model_complete: Optional[Any] = None
+    on_model_complete: Optional[Any] = None,
+    timeout: float = 180.0
 ) -> Dict[str, Optional[Dict[str, Any]]]:
     """
-    Query multiple models in parallel.
+    Query multiple models in parallel with timeout enforcement.
 
     Args:
         models: List of OpenRouter model identifiers
         messages: List of message dicts to send to each model
         on_model_complete: Optional callback function(model, response) called when each model completes
+        timeout: Maximum time to wait for each model (seconds), default 2 minutes
 
     Returns:
-        Dict mapping model identifier to response dict (or None if failed)
+        Dict mapping model identifier to response dict (or None if failed/timed out)
     """
     import asyncio
 
+    async def _query_with_timeout(model):
+        short_model = model.split('/')[-1] if '/' in model else model
+        try:
+            response = await asyncio.wait_for(
+                query_model(model, messages, timeout=timeout),
+                timeout=timeout
+            )
+            return response
+        except asyncio.TimeoutError:
+            logger.warning(f"[{short_model}] Forcefully cancelled after {timeout:.0f}s timeout")
+            return None
+
     async def _query_and_callback(model):
-        response = await query_model(model, messages)
+        response = await _query_with_timeout(model)
         if on_model_complete:
             if asyncio.iscoroutinefunction(on_model_complete):
                 await on_model_complete(model, response)
@@ -112,7 +128,7 @@ async def query_models_parallel(
     # Create tasks for all models
     tasks = [_query_and_callback(model) for model in models]
 
-    # Wait for all to complete
+    # Wait for all to complete (each has its own timeout)
     responses = await asyncio.gather(*tasks)
 
     # Map models to their responses

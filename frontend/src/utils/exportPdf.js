@@ -52,8 +52,8 @@ function parseInlineMarkdown(text) {
   if (!text) return [{ text: '', style: 'normal' }];
   
   const segments = [];
-  // Regex to match **bold**, *italic*, __bold__, _italic_, `code`, and [link](url)
-  const regex = /(\*\*(.+?)\*\*)|(__(.+?)__)|(\*(.+?)\*)|(_([^_]+)_)|(`([^`]+)`)|(\[([^\]]+)\]\(([^)]+)\))/g;
+  // Regex to match **bold**, *italic*, __bold__, _italic_, `code`, [link](url), and plain URLs
+  const regex = /(\*\*(.+?)\*\*)|(__(.+?)__)|(\*(.+?)\*)|(_([^_]+)_)|(`([^`]+)`)|(\[([^\]]+)\]\(([^)]+)\))|(https?:\/\/[^\s<>\[\]"']+)/g;
   
   let lastIndex = 0;
   let match;
@@ -80,8 +80,11 @@ function parseInlineMarkdown(text) {
       // `code`
       segments.push({ text: match[10], style: 'code' });
     } else if (match[11]) {
-      // [link](url)
-      segments.push({ text: match[12], style: 'normal' });
+      // [link](url) - save both text and URL
+      segments.push({ text: match[12], style: 'link', url: match[13] });
+    } else if (match[14]) {
+      // Plain URL (https://...)
+      segments.push({ text: match[14], style: 'link', url: match[14] });
     }
     
     lastIndex = match.index + match[0].length;
@@ -186,7 +189,7 @@ function wrapSegmentedText(doc, segments, maxWidth) {
         continue;
       }
       
-      currentLine.push({ text: word, style: segment.style });
+      currentLine.push({ text: word, style: segment.style, url: segment.url });
       currentWidth += wordWidth;
     }
   }
@@ -199,7 +202,7 @@ function wrapSegmentedText(doc, segments, maxWidth) {
 }
 
 /**
- * Render a line with inline styled segments.
+ * Render a line with inline styled segments, including clickable links.
  */
 function renderStyledLine(doc, segments, x, y, fonts) {
   let currentX = x;
@@ -221,8 +224,19 @@ function renderStyledLine(doc, segments, x, y, fonts) {
       doc.setTextColor(80, 80, 80);
     }
     
-    doc.text(segment.text, currentX, y);
-    currentX += doc.getTextWidth(segment.text);
+    // For links, use blue color and add clickable area
+    if (segment.style === 'link' && segment.url) {
+      doc.setTextColor(30, 90, 180);
+      const textWidth = doc.getTextWidth(segment.text);
+      doc.text(segment.text, currentX, y);
+      // Add clickable link area (x, y, width, height, url)
+      doc.link(currentX, y - 4, textWidth, 6, { url: segment.url });
+      currentX += textWidth;
+      doc.setTextColor(0, 0, 0);
+    } else {
+      doc.text(segment.text, currentX, y);
+      currentX += doc.getTextWidth(segment.text);
+    }
     
     // Reset color if it was changed
     if (segment.style === 'code') {
@@ -412,7 +426,8 @@ async function getImageData(url) {
 /**
  * Export council response to PDF with Cyrillic support.
  */
-export async function exportCouncilToPdf(userQuestion, assistantMessage, t) {
+export async function exportCouncilToPdf(userQuestion, assistantMessage, t, modelAliases = {}) {
+  const getModelName = (model) => modelAliases[model] || model.split('/')[1] || model;
   // Load fonts and logo in parallel
   const baseUrl = import.meta.env.BASE_URL || '/';
   const [fonts, logoData] = await Promise.all([
@@ -499,7 +514,7 @@ export async function exportCouncilToPdf(userQuestion, assistantMessage, t) {
     doc.setFontSize(13);
     doc.setTextColor(30, 58, 138);
     if (fonts) doc.setFont('DejaVu', 'bold');
-    const chairmanName = assistantMessage.stage3.model?.split('/')[1] || assistantMessage.stage3.model || 'Chairman';
+    const chairmanName = assistantMessage.stage3.model ? getModelName(assistantMessage.stage3.model) : 'Chairman';
     doc.text(`${t('stage3Title')} (${chairmanName}):`, marginLeft, y);
     y += 8;
 
@@ -573,7 +588,7 @@ export async function exportCouncilToPdf(userQuestion, assistantMessage, t) {
         doc.addPage();
         y = 25;
       }
-      const modelName = model.split('/')[1] || model;
+      const modelName = getModelName(model);
       const avg = typeof data.average === 'number' ? data.average.toFixed(2) : 'N/A';
       const votes = data.votes ?? 0;
       const avgText = `${t('avgShort')}: ${avg}, ${t('votes')}: ${votes}`;

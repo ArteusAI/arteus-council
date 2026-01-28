@@ -1,0 +1,46 @@
+version: "3.9"
+
+# Leads Mode Docker Compose Configuration
+# Usage: docker compose -f docker-compose.leads.yml up --build
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "${BACKEND_PORT:-8001}:${BACKEND_PORT:-8001}"
+    environment:
+      # API Keys
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - GIGACHAT_CREDENTIALS=${GIGACHAT_CREDENTIALS}
+      - GIGACHAT_SCOPE=${GIGACHAT_SCOPE}
+      - GIGACHAT_VERIFY_SSL=${GIGACHAT_VERIFY_SSL}
+      - GIGACHAT_PARALLEL_DISABLED=${GIGACHAT_PARALLEL_DISABLED}
+      - YANDEX_API_KEY=${YANDEX_API_KEY}
+      - YANDEX_FOLDER_ID=${YANDEX_FOLDER_ID}
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
+      # Server config
+      - BACKEND_PORT=${BACKEND_PORT:-8001}
+      - BASE_URL=${BASE_URL:-/}
+      - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-}
+      # Leads mode configuration
+      - LEADS_MODE=true
+      - LEADS_MONGODB_URL=${LEADS_MONGODB_URL:-mongodb://167.235.102.202:27017}
+      - LEADS_MONGODB_DB_NAME=${LEADS_MONGODB_DB_NAME:-council_leads}
+      - LEADS_FIXED_IDENTITY_ID=${LEADS_FIXED_IDENTITY_ID:-product}
+      - LEADS_PRODUCT_PROMPT=${LEADS_PRODUCT_PROMPT:-}
+    # No data volume needed in leads mode - everything goes to MongoDB
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-http://localhost:${BACKEND_PORT:-8001}}
+        BASE_URL: ${BASE_URL:-${VITE_BASE_PATH:-/}}
+        BACKEND_PORT: ${BACKEND_PORT:-8001}
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      - backend

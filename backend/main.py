@@ -7,7 +7,7 @@ import asyncio
 import logging
 import time
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, FastAPI, HTTPException, Request
 
 # Configure logging
 logging.basicConfig(
@@ -21,11 +21,16 @@ from pydantic import BaseModel
 from typing import List, Dict, Any
 
 from . import storage
+from . import leads_storage
 from .auth import (
+    LeadUser,
     User,
     authenticate_user,
     create_access_token,
+    create_leads_token,
     get_client_ip,
+    get_current_lead,
+    get_current_lead_optional,
     get_current_user,
     get_current_user_optional,
     get_user_council_settings,
@@ -38,6 +43,10 @@ from .config import (
     DEFAULT_PREFERRED_MODELS,
     CORS_ALLOW_ORIGINS,
     BACKEND_ROOT_PATH,
+    LEADS_FIXED_IDENTITY_ID,
+    LEADS_MODE,
+    LEADS_CHAIRMAN_MODEL,
+    MODEL_ALIASES,
     PERSONALIZATION_TEMPLATES,
     COUNCIL_IDENTITY_TEMPLATES,
 )
@@ -136,10 +145,79 @@ class CouncilSettingsResponse(BaseModel):
     base_system_prompt_id: str
 
 
+class LeadsRegisterRequest(BaseModel):
+    """Request to register as a lead."""
+    email: str | None = None
+    telegram: str | None = None
+
+
+class LeadsRegisterResponse(BaseModel):
+    """Response from lead registration."""
+    access_token: str
+    token_type: str = "bearer"
+    session_id: str
+    email: str | None = None
+    telegram: str | None = None
+
+
+class ConfigResponse(BaseModel):
+    """Application configuration response."""
+    leads_mode: bool
+    fixed_identity_id: str | None = None
+
+
 @router.get("/")
 async def root():
     """Health check endpoint."""
     return {"status": "ok", "service": "LLM Council API"}
+
+
+@router.get("/api/config", response_model=ConfigResponse)
+async def get_config():
+    """Return application configuration including mode information."""
+    return ConfigResponse(
+        leads_mode=LEADS_MODE,
+        fixed_identity_id=LEADS_FIXED_IDENTITY_ID if LEADS_MODE else None,
+    )
+
+
+@router.post("/api/leads/register", response_model=LeadsRegisterResponse)
+async def register_lead(request: LeadsRegisterRequest):
+    """Register a new lead and return session token (leads mode only)."""
+    if not LEADS_MODE:
+        raise HTTPException(status_code=400, detail="Leads mode is not enabled")
+
+    if not request.email and not request.telegram:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one of email or telegram is required"
+        )
+
+    try:
+        lead = await leads_storage.register_lead(request.email, request.telegram)
+        session_id = lead["session_id"]
+        access_token = create_leads_token(session_id, request.email, request.telegram)
+
+        return LeadsRegisterResponse(
+            access_token=access_token,
+            session_id=session_id,
+            email=request.email,
+            telegram=request.telegram,
+        )
+    except Exception as e:
+        logger.error(f"Lead registration error: {e}")
+        raise HTTPException(status_code=500, detail="Registration failed")
+
+
+@router.get("/api/leads/me")
+async def get_lead_me(lead: LeadUser = Depends(get_current_lead)):
+    """Get current lead user information (leads mode only)."""
+    return {
+        "authenticated": True,
+        "session_id": lead.session_id,
+        "email": lead.email,
+        "telegram": lead.telegram,
+    }
 
 
 @router.post("/api/auth/login", response_model=LoginResponse)
@@ -214,11 +292,12 @@ async def list_conversations(user: User = Depends(get_current_user)):
 
 @router.get("/api/models")
 async def list_models():
-    """Return available council and chairman models."""
+    """Return available council and chairman models with display aliases."""
     return {
         "council_models": COUNCIL_MODELS,
-        "chairman_model": CHAIRMAN_MODEL,
+        "chairman_model": LEADS_CHAIRMAN_MODEL if LEADS_MODE else CHAIRMAN_MODEL,
         "default_preferred_models": DEFAULT_PREFERRED_MODELS,
+        "model_aliases": MODEL_ALIASES,
     }
 
 
@@ -583,6 +662,37 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
         except asyncio.CancelledError:
             elapsed = time.time() - request_start
             logger.warning(f"[{conversation_id[:8]}] Stream CANCELLED after {elapsed:.1f}s (client disconnected)")
+            
+            # Save partial results if any stages completed
+            partial_stage1 = []
+            partial_stage2 = []
+            partial_stage3 = None
+            
+            # Check which tasks completed
+            for task in running_tasks:
+                if task.done() and not task.cancelled():
+                    try:
+                        # Try to identify which task this is and get its result
+                        if 'stage1_task' in locals() and task is stage1_task:
+                            partial_stage1 = task.result()
+                        elif 'stage2_task' in locals() and task is stage2_task:
+                            partial_stage2, _ = task.result()
+                        elif 'stage3_task' in locals() and task is stage3_task:
+                            partial_stage3 = task.result()
+                    except Exception as e:
+                        logger.error(f"Error getting partial result: {e}")
+            
+            # Save partial results if we have at least stage1 or stage3
+            if partial_stage1 or partial_stage3:
+                logger.info(f"[{conversation_id[:8]}] Saving partial results: stage1={len(partial_stage1)}, stage2={len(partial_stage2)}, stage3={bool(partial_stage3)}")
+                storage.add_assistant_message(
+                    user_id,
+                    conversation_id,
+                    partial_stage1,
+                    partial_stage2,
+                    partial_stage3 or {"model": "system", "response": "Processing was interrupted. Please refresh to retry."}
+                )
+            
             # Cancel all running tasks
             for task in running_tasks:
                 if not task.done():
@@ -603,6 +713,305 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",  # Disable nginx buffering for SSE
+        }
+    )
+
+
+# ============================================================================
+# Leads Mode Conversation Endpoints
+# ============================================================================
+
+@router.get("/api/leads/conversations", response_model=List[ConversationMetadata])
+async def list_leads_conversations(lead: LeadUser = Depends(get_current_lead)):
+    """List all conversations for a lead (leads mode only)."""
+    return await leads_storage.list_conversations(lead.session_id)
+
+
+@router.post("/api/leads/conversations", response_model=Conversation)
+async def create_leads_conversation(
+    request: CreateConversationRequest,
+    lead: LeadUser = Depends(get_current_lead),
+):
+    """Create a new conversation for a lead (leads mode only)."""
+    conversation_id = str(uuid.uuid4())
+    conversation = await leads_storage.create_conversation(lead.session_id, conversation_id)
+    return conversation
+
+
+@router.get("/api/leads/conversations/{conversation_id}", response_model=Conversation)
+async def get_leads_conversation(
+    conversation_id: str,
+    lead: LeadUser = Depends(get_current_lead),
+):
+    """Get a specific conversation for a lead (leads mode only)."""
+    conversation = await leads_storage.get_conversation(lead.session_id, conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conversation
+
+
+@router.delete("/api/leads/conversations/{conversation_id}")
+async def delete_leads_conversation(
+    conversation_id: str,
+    lead: LeadUser = Depends(get_current_lead),
+):
+    """Delete a specific conversation for a lead (leads mode only)."""
+    deleted = await leads_storage.delete_conversation(lead.session_id, conversation_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"deleted": True}
+
+
+@router.delete("/api/leads/conversations")
+async def delete_all_leads_conversations(lead: LeadUser = Depends(get_current_lead)):
+    """Delete all conversations for a lead (leads mode only)."""
+    count = await leads_storage.delete_all_conversations(lead.session_id)
+    return {"deleted_count": count}
+
+
+@router.post("/api/leads/conversations/{conversation_id}/message/stream")
+async def send_leads_message_stream(
+    conversation_id: str,
+    request: SendMessageRequest,
+    lead: LeadUser = Depends(get_current_lead),
+):
+    """Send a message and stream the council process for a lead (leads mode only)."""
+    if request.models is not None and len(request.models) == 0:
+        raise HTTPException(status_code=400, detail="At least one model must be selected.")
+
+    session_id = lead.session_id
+
+    # Check if conversation exists
+    conversation = await leads_storage.get_conversation(session_id, conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    is_first_message = len(conversation["messages"]) == 0
+
+    # In leads mode, use the fixed identity prompt
+    fixed_identity = COUNCIL_IDENTITY_TEMPLATES.get(LEADS_FIXED_IDENTITY_ID, {})
+    base_system_prompt_to_use = fixed_identity.get("prompt", "")
+    personal_prompt = ""  # No personalization in leads mode
+
+    def sse_json(data: dict) -> str:
+        return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
+
+    HEARTBEAT_INTERVAL = 15.0
+
+    async def event_generator():
+        request_start = time.time()
+        logger.info(f"[LEADS:{conversation_id[:8]}] Stream started, models={request.models}")
+
+        running_tasks = []
+
+        try:
+            models_to_use = request.models or None
+            chairman_to_use = request.chairman_model or None
+
+            # Add user message
+            await leads_storage.add_user_message(session_id, conversation_id, request.content)
+
+            # Process links in message
+            urls = extract_urls(request.content)
+            enriched_content = request.content
+            link_metadata = []
+
+            if urls:
+                logger.info(f"[LEADS:{conversation_id[:8]}] Scraping {len(urls)} URLs...")
+                yield f"data: {sse_json({'type': 'scraping_start', 'data': {'urls': urls}})}\n\n"
+
+                try:
+                    scraping_task = asyncio.create_task(process_message_links(request.content))
+                    running_tasks.append(scraping_task)
+                    while not scraping_task.done():
+                        try:
+                            await asyncio.wait_for(asyncio.shield(scraping_task), timeout=HEARTBEAT_INTERVAL)
+                        except asyncio.TimeoutError:
+                            yield f": heartbeat\n\n"
+
+                    enriched_content, link_metadata, scrape_status = scraping_task.result()
+                    yield f"data: {sse_json({'type': 'scraping_complete', 'data': {'links': link_metadata}})}\n\n"
+                except Exception as e:
+                    logger.error(f"[LEADS:{conversation_id[:8]}] Scraping error: {e}")
+                    yield f"data: {sse_json({'type': 'scraping_error', 'message': str(e)})}\n\n"
+
+            # Start title generation in parallel
+            title_task = None
+            if is_first_message:
+                title_task = asyncio.create_task(generate_conversation_title(request.content))
+                running_tasks.append(title_task)
+
+            # Stage 1
+            completed_stage1_models = []
+            def stage1_callback(model, response):
+                completed_stage1_models.append(model)
+
+            yield f"data: {sse_json({'type': 'stage1_start', 'data': {'models': models_to_use or COUNCIL_MODELS}})}\n\n"
+
+            stage1_task = asyncio.create_task(stage1_collect_responses(
+                enriched_content,
+                models=models_to_use,
+                language=request.language,
+                base_system_prompt=base_system_prompt_to_use,
+                on_model_complete=stage1_callback
+            ))
+            running_tasks.append(stage1_task)
+
+            last_reported_count = 0
+            while not stage1_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(stage1_task), timeout=HEARTBEAT_INTERVAL)
+                except asyncio.TimeoutError:
+                    while last_reported_count < len(completed_stage1_models):
+                        model = completed_stage1_models[last_reported_count]
+                        yield f"data: {sse_json({'type': 'stage1_model_complete', 'data': {'model': model}})}\n\n"
+                        last_reported_count += 1
+                    yield f": heartbeat\n\n"
+
+            while last_reported_count < len(completed_stage1_models):
+                model = completed_stage1_models[last_reported_count]
+                yield f"data: {sse_json({'type': 'stage1_model_complete', 'data': {'model': model}})}\n\n"
+                last_reported_count += 1
+
+            stage1_results = stage1_task.result()
+            yield f"data: {sse_json({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
+
+            # Stage 2
+            completed_stage2_models = []
+            def stage2_callback(model, response):
+                completed_stage2_models.append(model)
+
+            yield f"data: {sse_json({'type': 'stage2_start', 'data': {'models': models_to_use or COUNCIL_MODELS}})}\n\n"
+
+            stage2_task = asyncio.create_task(stage2_collect_rankings(
+                enriched_content,
+                stage1_results,
+                models=models_to_use,
+                language=request.language,
+                base_system_prompt=base_system_prompt_to_use,
+                on_model_complete=stage2_callback
+            ))
+            running_tasks.append(stage2_task)
+
+            last_reported_count = 0
+            while not stage2_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(stage2_task), timeout=HEARTBEAT_INTERVAL)
+                except asyncio.TimeoutError:
+                    while last_reported_count < len(completed_stage2_models):
+                        model = completed_stage2_models[last_reported_count]
+                        yield f"data: {sse_json({'type': 'stage2_model_complete', 'data': {'model': model}})}\n\n"
+                        last_reported_count += 1
+                    yield f": heartbeat\n\n"
+
+            while last_reported_count < len(completed_stage2_models):
+                model = completed_stage2_models[last_reported_count]
+                yield f"data: {sse_json({'type': 'stage2_model_complete', 'data': {'model': model}})}\n\n"
+                last_reported_count += 1
+
+            stage2_results, label_to_model = stage2_task.result()
+            aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
+            yield f"data: {sse_json({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
+
+            # Stage 3
+            yield f"data: {sse_json({'type': 'stage3_start'})}\n\n"
+
+            stage3_task = asyncio.create_task(stage3_synthesize_final(
+                enriched_content,
+                stage1_results,
+                stage2_results,
+                chairman_model=chairman_to_use,
+                language=request.language,
+                personal_prompt=personal_prompt,
+                base_system_prompt=base_system_prompt_to_use,
+            ))
+            running_tasks.append(stage3_task)
+            while not stage3_task.done():
+                try:
+                    await asyncio.wait_for(asyncio.shield(stage3_task), timeout=HEARTBEAT_INTERVAL)
+                except asyncio.TimeoutError:
+                    yield f": heartbeat\n\n"
+            stage3_result = stage3_task.result()
+            yield f"data: {sse_json({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
+
+            # Wait for title generation
+            if title_task:
+                while not title_task.done():
+                    try:
+                        await asyncio.wait_for(asyncio.shield(title_task), timeout=HEARTBEAT_INTERVAL)
+                    except asyncio.TimeoutError:
+                        yield f": heartbeat\n\n"
+                title = title_task.result()
+                await leads_storage.update_conversation_title(session_id, conversation_id, title)
+                yield f"data: {sse_json({'type': 'title_complete', 'data': {'title': title}})}\n\n"
+
+            # Save assistant message
+            logger.info(f"[LEADS:{conversation_id[:8]}] Saving: stage1={len(stage1_results)} items, stage2={len(stage2_results)} items, stage3={bool(stage3_result)}")
+            await leads_storage.add_assistant_message(
+                session_id,
+                conversation_id,
+                stage1_results,
+                stage2_results,
+                stage3_result,
+                scraped_links=link_metadata if link_metadata else None,
+            )
+
+            total_duration = time.time() - request_start
+            logger.info(f"[LEADS:{conversation_id[:8]}] Stream complete, total={total_duration:.1f}s")
+            yield f"data: {sse_json({'type': 'complete'})}\n\n"
+
+        except asyncio.CancelledError:
+            elapsed = time.time() - request_start
+            logger.warning(f"[LEADS:{conversation_id[:8]}] Stream CANCELLED after {elapsed:.1f}s")
+            
+            # Save partial results if any stages completed
+            partial_stage1 = []
+            partial_stage2 = []
+            partial_stage3 = None
+            
+            # Check which tasks completed
+            for task in running_tasks:
+                if task.done() and not task.cancelled():
+                    try:
+                        if 'stage1_task' in locals() and task is stage1_task:
+                            partial_stage1 = task.result()
+                        elif 'stage2_task' in locals() and task is stage2_task:
+                            partial_stage2, _ = task.result()
+                        elif 'stage3_task' in locals() and task is stage3_task:
+                            partial_stage3 = task.result()
+                    except Exception as e:
+                        logger.error(f"Error getting partial result: {e}")
+            
+            # Save partial results if we have at least stage1 or stage3
+            if partial_stage1 or partial_stage3:
+                logger.info(f"[LEADS:{conversation_id[:8]}] Saving partial results: stage1={len(partial_stage1)}, stage2={len(partial_stage2)}, stage3={bool(partial_stage3)}")
+                await leads_storage.add_assistant_message(
+                    session_id,
+                    conversation_id,
+                    partial_stage1,
+                    partial_stage2,
+                    partial_stage3 or {"model": "system", "response": "Processing was interrupted. Please refresh to retry."},
+                    scraped_links=link_metadata if link_metadata else None,
+                )
+            
+            for task in running_tasks:
+                if not task.done():
+                    task.cancel()
+            if running_tasks:
+                await asyncio.gather(*running_tasks, return_exceptions=True)
+            raise
+        except Exception as e:
+            elapsed = time.time() - request_start
+            logger.error(f"[LEADS:{conversation_id[:8]}] Stream ERROR after {elapsed:.1f}s: {e}")
+            yield f"data: {sse_json({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         }
     )
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import LoginInterface from './components/LoginInterface';
+import LeadsLoginInterface from './components/LeadsLoginInterface';
 import { api } from './api';
 import { translate } from './i18n';
 import './App.css';
@@ -15,8 +16,12 @@ const normalizeLang = (code) => {
 };
 
 function App() {
+  const [configLoaded, setConfigLoaded] = useState(false);
+  const [leadsMode, setLeadsMode] = useState(false);
+  const [fixedIdentityId, setFixedIdentityId] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [user, setUser] = useState(null);
+  const [leadUser, setLeadUser] = useState(null);
   const [ipBypassed, setIpBypassed] = useState(false);
   const [conversations, setConversations] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(() => {
@@ -35,6 +40,7 @@ function App() {
   const [baseSystemPrompt, setBaseSystemPrompt] = useState('');
   const [baseSystemPromptId, setBaseSystemPromptId] = useState('custom');
   const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [modelAliases, setModelAliases] = useState({});
   const logoUrl = 'https://framerusercontent.com/images/G4MFpJVGo4QKdInsGAegy907Em4.png';
   const [language, setLanguage] = useState('ru');
   const [theme, setTheme] = useState(() => {
@@ -46,6 +52,7 @@ function App() {
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [utmTelegram, setUtmTelegram] = useState('');
   const abortControllerRef = useRef(null);
   const activeStreamConversationRef = useRef(null);
   const inProgressConversationRef = useRef(null);
@@ -60,6 +67,15 @@ function App() {
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Parse UTM parameters for pre-filled login
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const telegram = params.get('telegram') || params.get('tg') || params.get('utm_telegram');
+    if (telegram) {
+      setUtmTelegram(telegram);
+    }
   }, []);
 
   const abortCurrentRequest = useCallback(() => {
@@ -119,14 +135,47 @@ function App() {
 
   const t = (key) => translate(language, key);
 
-  // Check authentication on mount
+  // Check config and authentication on mount
   useEffect(() => {
+    const initApp = async () => {
+      // First, load config to determine mode
+      try {
+        const config = await api.getConfig();
+        setLeadsMode(config.leads_mode || false);
+        setFixedIdentityId(config.fixed_identity_id || null);
+      } catch (error) {
+        console.warn('Config load failed, assuming normal mode:', error);
+        setLeadsMode(false);
+      } finally {
+        setConfigLoaded(true);
+      }
+    };
+    initApp();
+  }, []);
+
+  // Check authentication after config is loaded
+  useEffect(() => {
+    if (!configLoaded) return;
+
     const checkAuth = async () => {
       try {
-        const data = await api.getMe();
-        setIpBypassed(data.ip_bypassed || false);
-        if (data.authenticated) {
-          setUser(data.user);
+        if (leadsMode) {
+          // In leads mode, check for existing lead session
+          const data = await api.getLeadMe();
+          if (data.authenticated) {
+            setLeadUser({
+              session_id: data.session_id,
+              email: data.email,
+              telegram: data.telegram,
+            });
+          }
+        } else {
+          // Normal mode
+          const data = await api.getMe();
+          setIpBypassed(data.ip_bypassed || false);
+          if (data.authenticated) {
+            setUser(data.user);
+          }
         }
       } catch (error) {
         console.warn('Auth check failed:', error);
@@ -135,16 +184,26 @@ function App() {
       }
     };
     checkAuth();
-  }, []);
+  }, [configLoaded, leadsMode]);
 
   const handleLogin = async (email, password) => {
     const data = await api.login(email, password);
     setUser(data.user);
   };
 
+  const handleLeadsRegister = async (email, telegram) => {
+    const data = await api.registerLead(email, telegram);
+    setLeadUser({
+      session_id: data.session_id,
+      email: data.email,
+      telegram: data.telegram,
+    });
+  };
+
   const handleLogout = useCallback(() => {
     api.logout();
     setUser(null);
+    setLeadUser(null);
     setConversations([]);
     setCurrentConversationId(null);
     setCurrentConversation(null);
@@ -153,10 +212,14 @@ function App() {
   // Load conversations when authenticated
   useEffect(() => {
     if (!authChecked) return;
-    if (!user && !ipBypassed) return;
+    if (leadsMode) {
+      if (!leadUser) return;
+    } else {
+      if (!user && !ipBypassed) return;
+    }
     loadConversations();
     loadModels();
-  }, [authChecked, user, ipBypassed]);
+  }, [authChecked, user, leadUser, ipBypassed, leadsMode]);
 
   // Load conversation details when selected
   useEffect(() => {
@@ -186,13 +249,28 @@ function App() {
 
   const loadConversations = async () => {
     try {
-      const convs = await api.listConversations();
+      const convs = leadsMode 
+        ? await api.listLeadsConversations()
+        : await api.listConversations();
       setConversations(convs);
 
       // Validate currentConversationId if it exists
       if (currentConversationId && !convs.find(c => c.id === currentConversationId)) {
         setCurrentConversationId(null);
         setCurrentConversation(null);
+      }
+
+      // Auto-select or create conversation
+      if (convs.length === 0) {
+        // No conversations - create first one automatically
+        const newConv = leadsMode
+          ? await api.createLeadsConversation()
+          : await api.createConversation();
+        setConversations([{ id: newConv.id, created_at: newConv.created_at, message_count: 0 }]);
+        setCurrentConversationId(newConv.id);
+      } else if (!currentConversationId) {
+        // Has conversations but none selected - select the most recent (first in list)
+        setCurrentConversationId(convs[0].id);
       }
     } catch (error) {
       console.error('Failed to load conversations:', error);
@@ -201,23 +279,38 @@ function App() {
 
   const loadModels = async () => {
     try {
-      // Load models, council settings, and identity templates in parallel
-      const [data, settings, templatesData] = await Promise.all([
+      // In leads mode, skip council settings (they're fixed)
+      const promises = [
         api.listModels(),
-        api.getCouncilSettings().catch(e => {
-          console.warn('Failed to load council settings:', e);
-          return { personal_prompt: '', template_id: 'default', base_system_prompt: '', base_system_prompt_id: 'arteus' };
-        }),
         api.getCouncilIdentityTemplates().catch(e => {
           console.warn('Failed to load identity templates:', e);
           return { templates: [] };
         })
-      ]);
+      ];
+
+      // Only load council settings in normal mode
+      if (!leadsMode) {
+        promises.push(
+          api.getCouncilSettings().catch(e => {
+            console.warn('Failed to load council settings:', e);
+            return { personal_prompt: '', template_id: 'default', base_system_prompt: '', base_system_prompt_id: 'arteus' };
+          })
+        );
+      }
+
+      const results = await Promise.all(promises);
+      const data = results[0];
+      const templatesData = results[1];
+      const settings = leadsMode 
+        ? { personal_prompt: '', template_id: 'default', base_system_prompt: '', base_system_prompt_id: fixedIdentityId || 'arteus' }
+        : results[2];
 
       const councilList = data.council_models || [];
       const templates = templatesData.templates || [];
+      const aliases = data.model_aliases || {};
       setAvailableModels(councilList);
       setIdentityTemplates(templates);
+      setModelAliases(aliases);
       
       let promptText = settings.base_system_prompt || '';
       const promptId = settings.base_system_prompt_id || 'custom';
@@ -252,21 +345,22 @@ function App() {
         console.warn('Failed to load saved models', e);
       }
 
+      // Get default preferred models
+      const defaultPreferred = data.default_preferred_models || [];
+      const defaultSelection = councilList.filter((m) =>
+        defaultPreferred.includes(m)
+      );
+
       if (savedModels) {
         setSelectedModels(savedModels);
       } else {
-        // Default to selecting all available models
-        setSelectedModels(councilList);
+        // Default to preferred models, fallback to all if none specified
+        setSelectedModels(defaultSelection.length > 0 ? defaultSelection : councilList);
       }
 
       if (savedChairman) {
         setChairmanModel(savedChairman);
       } else {
-        const defaultPreferred =
-          data.default_preferred_models || [];
-        const defaultSelection = councilList.filter((m) =>
-          defaultPreferred.includes(m)
-        );
         const chairmanCandidate =
           data.chairman_model ||
           defaultSelection[0] ||
@@ -303,7 +397,9 @@ function App() {
 
   const loadConversation = async (id) => {
     try {
-      const conv = await api.getConversation(id);
+      const conv = leadsMode 
+        ? await api.getLeadsConversation(id)
+        : await api.getConversation(id);
       setCurrentConversation(conv);
     } catch (error) {
       console.error('Failed to load conversation:', error);
@@ -312,7 +408,9 @@ function App() {
 
   const handleNewConversation = async () => {
     try {
-      const newConv = await api.createConversation();
+      const newConv = leadsMode
+        ? await api.createLeadsConversation()
+        : await api.createConversation();
       setConversations([
         { id: newConv.id, created_at: newConv.created_at, message_count: 0 },
         ...conversations,
@@ -342,7 +440,11 @@ function App() {
         abortCurrentRequest();
         setIsLoading(false);
       }
-      await api.deleteConversation(id);
+      if (leadsMode) {
+        await api.deleteLeadsConversation(id);
+      } else {
+        await api.deleteConversation(id);
+      }
       setConversations((prev) => prev.filter((c) => c.id !== id));
       if (currentConversationId === id) {
         setCurrentConversationId(null);
@@ -358,7 +460,11 @@ function App() {
       // Abort any ongoing request
       abortCurrentRequest();
       setIsLoading(false);
-      await api.deleteAllConversations();
+      if (leadsMode) {
+        await api.deleteAllLeadsConversations();
+      } else {
+        await api.deleteAllConversations();
+      }
       setConversations([]);
       setCurrentConversationId(null);
       setCurrentConversation(null);
@@ -485,19 +591,19 @@ function App() {
         });
       };
 
-      // Don't send empty custom prompt - let backend use default
-      const effectiveBasePrompt = (baseSystemPromptId === 'custom' && !baseSystemPrompt.trim()) 
-        ? null 
-        : baseSystemPrompt;
+      // Don't send empty custom prompt - let backend use default (only in normal mode)
+      const effectiveBasePrompt = leadsMode 
+        ? null  // In leads mode, backend uses fixed identity
+        : ((baseSystemPromptId === 'custom' && !baseSystemPrompt.trim()) ? null : baseSystemPrompt);
 
-      // Send message with streaming
-      await api.sendMessageStream(
-        streamConversationId,
-        content,
-        selectedModels,
-        chairmanModel,
-        language,
-        effectiveBasePrompt,
+      // Send message with streaming (use appropriate API based on mode)
+      const streamMethod = leadsMode ? api.sendLeadsMessageStream : api.sendMessageStream;
+      const streamArgs = leadsMode
+        ? [streamConversationId, content, selectedModels, chairmanModel, language]
+        : [streamConversationId, content, selectedModels, chairmanModel, language, effectiveBasePrompt];
+
+      await streamMethod(
+        ...streamArgs,
         (eventType, event) => {
         switch (eventType) {
           case 'scraping_start':
@@ -665,22 +771,8 @@ function App() {
     }
   };
 
-  if (isMobile) {
-    return (
-      <div className={`app ${theme} mobile-warning-overlay`}>
-        <div className="mobile-warning-content">
-          <h1>{language === 'ru' ? 'Нинада' : 'Nooo'}</h1>
-          <p>{language === 'ru' ? 'Не игрушки всё это' : 'This is not a toy'}</p>
-          <button className="pill-button" onClick={() => setIsMobile(false)}>
-            {language === 'ru' ? 'Я всё равно хочу' : 'I want it anyway'}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Show loading state while checking auth
-  if (!authChecked) {
+  // Show loading state while checking config or auth
+  if (!configLoaded || !authChecked) {
     return (
       <div className={`app ${theme}`}>
         <div className="login-container">
@@ -692,13 +784,25 @@ function App() {
     );
   }
 
-  // Show login screen if not authenticated and not IP-bypassed
-  if (!user && !ipBypassed) {
-    return (
-      <div className={`app ${theme}`}>
-        <LoginInterface onLogin={handleLogin} t={t} theme={theme} />
-      </div>
-    );
+  // Show login/registration screen if not authenticated
+  if (leadsMode) {
+    // Leads mode: show leads registration if no lead user
+    if (!leadUser) {
+      return (
+        <div className={`app ${theme}`}>
+          <LeadsLoginInterface onRegister={handleLeadsRegister} t={t} theme={theme} initialTelegram={utmTelegram} />
+        </div>
+      );
+    }
+  } else {
+    // Normal mode: show login if not authenticated and not IP-bypassed
+    if (!user && !ipBypassed) {
+      return (
+        <div className={`app ${theme}`}>
+          <LoginInterface onLogin={handleLogin} t={t} theme={theme} initialTelegram={utmTelegram} />
+        </div>
+      );
+    }
   }
 
   return (
@@ -732,8 +836,9 @@ function App() {
         language={language}
         onLanguageChange={setLanguageSafe}
         t={t}
-        user={user}
+        user={leadsMode ? (leadUser ? { email: leadUser.email || leadUser.telegram } : null) : user}
         onLogout={handleLogout}
+        leadsMode={leadsMode}
       />
       <ChatInterface
         conversation={currentConversation}
@@ -752,6 +857,9 @@ function App() {
         modelsLoaded={modelsLoaded}
         language={language}
         t={t}
+        hideIdentitySelector={leadsMode}
+        leadsMode={leadsMode}
+        modelAliases={modelAliases}
       />
     </div>
   );

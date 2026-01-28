@@ -65,16 +65,25 @@ else:
 COUNCIL_MODELS = [
     "openai/gpt-5.2",
     "google/gemini-3-pro-preview",
-    "anthropic/claude-opus-4.5",
-    "qwen/qwen3-max",
+    "anthropic/claude-sonnet-4.5",
     "x-ai/grok-4",
-    "moonshotai/kimi-k2-thinking",
-    "deepseek/deepseek-v3.2-speciale",
+    "moonshotai/kimi-k2.5",
     "mistralai/mistral-large-2512",
     "z-ai/glm-4.7",
-    "gigachat/GigaChat-2-Max",
     "yandex/aliceai-llm"
 ]
+
+# Model display names (aliases) for UI
+MODEL_ALIASES = {
+    "openai/gpt-5.2": "OpenAI: GPT-5.2",
+    "google/gemini-3-pro-preview": "Google: Gemini 3 Pro",
+    "anthropic/claude-sonnet-4.5": "Anthropic: Claude Opus 4.5",
+    "x-ai/grok-4": "xAI: Grok 4",
+    "moonshotai/kimi-k2.5": "MoonshotAI: Kimi K2.5",
+    "mistralai/mistral-large-2512": "Mistral: Large",
+    "z-ai/glm-4.7": "Z.AI: GLM-4.7",
+    "yandex/aliceai-llm": "Yandex: Alice AI"
+}
 
 # Chairman model - synthesizes final response
 CHAIRMAN_MODEL = "google/gemini-3-pro-preview"
@@ -82,8 +91,10 @@ CHAIRMAN_MODEL = "google/gemini-3-pro-preview"
 # Default preferred models to preselect in the UI
 DEFAULT_PREFERRED_MODELS = [
     "openai/gpt-5.2",
-    "anthropic/claude-opus-4.5",
-    "google/gemini-3-pro-preview"
+    "google/gemini-3-pro-preview",
+    "x-ai/grok-4",
+    "moonshotai/kimi-k2.5",
+    "yandex/aliceai-llm",
 ]
 
 # OpenRouter API endpoint
@@ -113,6 +124,73 @@ BACKEND_ROOT_PATH = _normalize_root_path(
 MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://167.235.102.202:27017")
 MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "arteus_art_agora")
 
+# Leads mode configuration
+LEADS_MODE = os.getenv("LEADS_MODE", "false").lower() == "true"
+LEADS_MONGODB_URL = os.getenv("LEADS_MONGODB_URL", "mongodb://167.235.102.202:27017")
+LEADS_MONGODB_DB_NAME = os.getenv("LEADS_MONGODB_DB_NAME", "council_leads")
+LEADS_FIXED_IDENTITY_ID = os.getenv("LEADS_FIXED_IDENTITY_ID", "product")
+LEADS_CHAIRMAN_MODEL = "google/gemini-3-pro-preview"
+
+# Default product council prompt for leads mode
+DEFAULT_LEADS_PRODUCT_PROMPT = """You are an expert integrator of AI products for business. You deeply understand the challenges of integrating AI solutions across various business domains and identify 4 core problems:
+
+## THE 4 INTEGRATION CHALLENGES
+
+### 1. Disengaged Stakeholders
+The core issue: AI adoption is often initiated by owners or innovators, but the actual users are frontline managers, and the customer (in sales contexts) is typically the Sales Director. Conflict of interests: If the Sales Director doesn't see personal value (e.g., easier oversight), they perceive AI as an imposed toy that distracts salespeople from making calls.
+
+### 2. Data Unreadiness
+The core issue: AI cannot read "between the lines" and doesn't understand context that "everyone already knows." The illusion of order: Companies believe they have a knowledge base. In reality, it's a scattered collection of Google Docs, PDFs, Slack conversations, and oral traditions. Data conflicts: Marketing materials say "Individual approach," while internal policies have strict cancellation terms. Humans distinguish marketing from facts. AI might output a marketing slogan instead of a legal condition.
+
+### 3. Employee Habits & "The Desktop Problem" (The Last Mile Problem)
+The core issue: The battle of interfaces. The smartest AI is useless if it doesn't live where the user lives.
+
+### 4. Non-standard Tracks and Metrics for Measuring Results
+Standard metrics (conversion, revenue) are too general and depend on many factors. To understand if AI is working, you need specific "hybrid" metrics:
+- Number of product questions in team chats
+- Speed and success rate of employee onboarding
+- How many cold leads the bot filtered before reaching a manager
+- And other industry-specific metrics
+
+## YOUR TASK
+
+You will receive a URL to a website. Analyze the website to determine:
+1. The business domain/industry
+2. The product or service offered
+3. Create an implementation roadmap for integrating the following 4 AI products into this business
+
+## THE 4 AI PRODUCTS
+
+### 1. Lead Qualifier (Ad Landing Enhancement)
+Continues the advertising creative's message with ultra-precise matching of sales communication to the visitor's motivation. Second use case: qualifying inbound inquiries - can score leads, filter fraud, serve as first-line support. Integrates into any website block: classic widget, AI banners, catalog, search, etc.
+**Demo:** https://drive.google.com/file/d/13JUN3Uus_KrPffxGUQ06rERK-x8iYwXP/view?usp=sharing
+
+### 2. CRM Assistant (Smart Suggestions in CRM)
+Provides every manager with a mentor-assistant that accumulates knowledge from all successful deals and instantly generates response options, combining the dialogue history from all channels. Controlled via a button panel directly in the CRM lead. The manager becomes a deal dispatcher - adjusting assistant suggestions to dialogue goals. Increases throughput, conversion at each sales stage, new manager onboarding speed, and speed of implementing/testing script changes.
+**Demo:** https://drive.google.com/file/d/17VAZG4KGyG6wwEVje99qyHPMpLYLIo2l/view?usp=sharing
+
+### 3. Database Activation
+Personalized native messenger campaigns for warming up and repeat sales. The system adapts offers to each recipient based on dialogue history and automatically identifies the most relevant recipients for each offer.
+**Demo:** https://drive.google.com/file/d/1zCvregO9cWqbQR0pA9ZCTnhCeJ2IyLXZ/view?usp=sharing
+
+### 4. AI Trainer
+A product for employee training, knowledge testing, and sales manager coaching. Solves the resource and time problem for mentoring, role-playing, coaching, and creating training materials. Flexible settings, training use-cases are auto-generated from real-time company cases.
+**Demo:** https://drive.google.com/file/d/11XiQEMH715cRcPgN6cW36hjiXV-ojZPh/view?usp=sharing
+
+## OUTPUT FORMAT
+
+For each of the 4 products, provide:
+
+1. **Relevance to this business**: How this product applies to the analyzed company
+2. **Value proposition**: What specific task it solves and what value it delivers
+3. **Potential pitfalls** for each of the 4 integration challenges specific to this business domain
+4. **Recommendations**: How to avoid these implementation problems
+5. **Product summary**: Brief description and invitation to view the demo via the provided link
+
+Structure your response clearly with headers for each product. Be specific to the business domain you identified from the website. Provide actionable, practical advice."""
+
+LEADS_PRODUCT_PROMPT = os.getenv("LEADS_PRODUCT_PROMPT") or DEFAULT_LEADS_PRODUCT_PROMPT
+
 # JWT configuration
 JWT_SECRET = os.getenv("JWT_SECRET", "secret")
 JWT_ALGORITHM = "HS256"
@@ -134,7 +212,7 @@ COUNCIL_IDENTITY_TEMPLATES = {
     "arteus": {
         "id": "arteus",
         "name": "Arteus Council",
-        "name_ru": "Совет Arteus",
+        "name_ru": "Консилиум Arteus",
         "prompt": BASE_SYSTEM_PROMPT,
     },
     "neutral": {
@@ -152,14 +230,20 @@ COUNCIL_IDENTITY_TEMPLATES = {
     "medical": {
         "id": "medical",
         "name": "Medical Council",
-        "name_ru": "Медицинский совет",
+        "name_ru": "Медицинский консилиум",
         "prompt": "You are a council of medical experts. Provide information based on medical science and best practices. Always include a disclaimer that this is not medical advice.",
     },
     "legal": {
         "id": "legal",
         "name": "Legal Council",
-        "name_ru": "Юридический совет",
+        "name_ru": "Юридический консилиум",
         "prompt": "You are a council of legal experts. Provide structured legal analysis and information. Always include a disclaimer that this is not legal advice.",
+    },
+    "product": {
+        "id": "product",
+        "name": "Product Council",
+        "name_ru": "Продуктовый консилиум",
+        "prompt": LEADS_PRODUCT_PROMPT,
     },
 }
 PERSONALIZATION_TEMPLATES = {

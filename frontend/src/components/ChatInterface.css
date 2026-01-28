@@ -87,6 +87,18 @@
   background: var(--accent-light);
 }
 
+.icon-button.with-text {
+  width: auto;
+  padding: 0 12px;
+  gap: 8px;
+}
+
+.icon-button-label {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 .base-prompt-settings {
   background: var(--bg-accent);
 }
@@ -194,8 +206,8 @@
 .model-pill {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 10px;
+  gap: 6px;
+  padding: 8px 10px;
   border: 1px solid var(--border-secondary);
   border-radius: 10px;
   background: var(--bg-accent);
@@ -214,14 +226,15 @@
 }
 
 .model-pill-check {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
   border-radius: 999px;
   border: 1px solid var(--border-secondary);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 10px;
   color: var(--accent-blue);
   background: var(--bg-primary);
   transition: background 0.3s ease, border-color 0.3s ease;
@@ -233,8 +246,10 @@
 }
 
 .model-pill-name {
-  font-weight: 700;
+  font-weight: 600;
+  font-size: 13px;
   color: var(--text-primary);
+  line-height: 1.2;
 }
 
 .model-pill-id {
@@ -310,6 +325,7 @@
   height: 100%;
   color: var(--text-secondary);
   text-align: center;
+  padding: 20px;
 }
 
 .empty-state h2 {
@@ -375,6 +391,19 @@
   flex-shrink: 0;
 }
 
+.interrupted-retry-button {
+  background: #ff9800;
+  border-color: #ff9800;
+  color: white !important;
+  font-weight: 600;
+}
+
+.interrupted-retry-button:hover {
+  background: #f57c00;
+  border-color: #f57c00;
+  color: white !important;
+}
+
 .user-message .message-content {
   background: var(--bg-user-message);
   padding: 16px;
@@ -389,11 +418,26 @@
 
 .loading-indicator {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 12px;
   padding: 16px;
   color: var(--text-secondary);
   font-size: 14px;
+}
+
+.loading-indicator > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.loading-warning {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 400;
+  padding: 4px 0;
+  width: 100%;
 }
 
 .stage-loading {
@@ -731,14 +775,35 @@
   }
 }
 
+.input-form-container {
+  border-top: 1px solid var(--border-primary);
+  background: var(--bg-input);
+  transition: background 0.3s ease, border-color 0.3s ease;
+}
+
 .input-form {
   display: flex;
   align-items: flex-end;
   gap: 12px;
   padding: 24px;
-  border-top: 1px solid var(--border-primary);
-  background: var(--bg-input);
-  transition: background 0.3s ease, border-color 0.3s ease;
+  padding-bottom: 12px;
+  background: transparent;
+}
+
+.input-form-container .input-form {
+  border-top: none;
+}
+
+.leads-url-note {
+  padding: 12px 24px 16px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #e67e22;
+  text-align: center;
+  background: rgba(230, 126, 34, 0.1);
+  border-radius: 8px;
+  margin: 0 12px 8px 12px;
+  border: 1px solid rgba(230, 126, 34, 0.3);
 }
 
 .message-input {
@@ -814,31 +879,37 @@
   }
 
   .model-controls {
-    padding: 60px 16px 12px 16px;
+    padding: 16px;
+    padding-top: 70px;
   }
 
   .model-controls-header {
     flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
+    align-items: stretch;
+    gap: 12px;
   }
 
   .model-controls-title {
-    font-size: 15px;
+    font-size: 18px;
+    font-weight: 700;
   }
 
   .model-controls-subtitle {
     font-size: 13px;
+    line-height: 1.4;
+    word-break: break-word;
   }
 
   .model-controls-actions {
     width: 100%;
+    display: flex;
+    gap: 8px;
   }
 
   .pill-button {
     flex: 1;
     text-align: center;
-    padding: 10px 12px;
+    padding: 12px;
     font-size: 14px;
   }
 
@@ -959,11 +1030,12 @@
 /* iPhone 13 mini and similar (375px) */
 @media (max-width: 390px) {
   .model-controls {
-    padding: 55px 12px 10px 12px;
+    padding: 12px;
+    padding-top: 65px;
   }
 
   .model-controls-title {
-    font-size: 14px;
+    font-size: 16px;
   }
 
   .model-controls-subtitle {
@@ -971,7 +1043,7 @@
   }
 
   .pill-button {
-    padding: 9px 10px;
+    padding: 10px 8px;
     font-size: 13px;
   }
 
@@ -1071,11 +1143,12 @@
 /* Very small screens (320px) */
 @media (max-width: 360px) {
   .model-controls {
-    padding: 50px 10px 8px 10px;
+    padding: 10px;
+    padding-top: 60px;
   }
 
   .model-controls-title {
-    font-size: 13px;
+    font-size: 15px;
   }
 
   .model-controls-subtitle {
@@ -1083,7 +1156,7 @@
   }
 
   .pill-button {
-    padding: 8px;
+    padding: 10px 6px;
     font-size: 12px;
   }
 
