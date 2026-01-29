@@ -15,7 +15,7 @@ const TEMPLATE_KEYS = {
   custom: 'templateCustom',
 };
 
-export default function PersonalizationSettings({ isOpen, onClose, t, language }) {
+export default function PersonalizationSettings({ isOpen, onClose, t, language, leadsMode = false }) {
   const [templates, setTemplates] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('default');
   const [customPrompt, setCustomPrompt] = useState('');
@@ -34,7 +34,7 @@ export default function PersonalizationSettings({ isOpen, onClose, t, language }
     try {
       const [templatesData, councilSettings] = await Promise.all([
         api.getPersonalizationTemplates(),
-        api.getCouncilSettings(),
+        leadsMode ? api.getLeadsCouncilSettings() : api.getCouncilSettings(),
       ]);
 
       setTemplates(templatesData.templates || []);
@@ -68,9 +68,14 @@ export default function PersonalizationSettings({ isOpen, onClose, t, language }
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      // Get current settings to preserve base_system_prompt
-      const settings = await api.getCouncilSettings();
-      await api.setCouncilSettings(customPrompt, selectedTemplateId, settings.base_system_prompt);
+      if (leadsMode) {
+        // Leads mode: only save personalization, no base_system_prompt
+        await api.setLeadsCouncilSettings(customPrompt, selectedTemplateId);
+      } else {
+        // Normal mode: get current settings to preserve base_system_prompt
+        const settings = await api.getCouncilSettings();
+        await api.setCouncilSettings(customPrompt, selectedTemplateId, settings.base_system_prompt);
+      }
       setShowSaved(true);
       setTimeout(() => {
         setShowSaved(false);
@@ -120,6 +125,9 @@ export default function PersonalizationSettings({ isOpen, onClose, t, language }
                       onClick={() => handleTemplateSelect(template.id)}
                     >
                       {getTemplateName(template)}
+                      {template.id === 'tractor' && (
+                        <div className="template-warning">⚠️ {t('templateTractorWarning')}</div>
+                      )}
                     </button>
                   ))}
                   <button

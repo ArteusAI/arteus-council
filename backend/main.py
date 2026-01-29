@@ -769,6 +769,37 @@ async def delete_all_leads_conversations(lead: LeadUser = Depends(get_current_le
     return {"deleted_count": count}
 
 
+@router.get("/api/leads/council-settings", response_model=CouncilSettingsResponse)
+async def get_leads_council_settings(lead: LeadUser = Depends(get_current_lead)):
+    """Get council settings for a lead user."""
+    settings = await leads_storage.get_lead_council_settings(lead.session_id)
+    return CouncilSettingsResponse(
+        personal_prompt=settings["personal_prompt"],
+        template_id=settings["template_id"],
+        base_system_prompt="",  # Leads use fixed identity, no base prompt customization
+        base_system_prompt_id="",
+    )
+
+
+@router.post("/api/leads/council-settings", response_model=CouncilSettingsResponse)
+async def update_leads_council_settings(
+    request: CouncilSettingsRequest,
+    lead: LeadUser = Depends(get_current_lead),
+):
+    """Update council settings for a lead user."""
+    await leads_storage.set_lead_council_settings(
+        lead.session_id,
+        request.personal_prompt,
+        request.template_id,
+    )
+    return CouncilSettingsResponse(
+        personal_prompt=request.personal_prompt,
+        template_id=request.template_id,
+        base_system_prompt="",
+        base_system_prompt_id="",
+    )
+
+
 @router.post("/api/leads/conversations/{conversation_id}/message/stream")
 async def send_leads_message_stream(
     conversation_id: str,
@@ -791,7 +822,10 @@ async def send_leads_message_stream(
     # In leads mode, use the fixed identity prompt
     fixed_identity = COUNCIL_IDENTITY_TEMPLATES.get(LEADS_FIXED_IDENTITY_ID, {})
     base_system_prompt_to_use = fixed_identity.get("prompt", "")
-    personal_prompt = ""  # No personalization in leads mode
+    
+    # Load personalization settings for this lead
+    lead_settings = await leads_storage.get_lead_council_settings(session_id)
+    personal_prompt = lead_settings.get("personal_prompt", "")
 
     def sse_json(data: dict) -> str:
         return json.dumps(data, ensure_ascii=False, separators=(',', ':'))

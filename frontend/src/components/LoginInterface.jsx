@@ -12,11 +12,37 @@ function LoginInterface({ onLogin, error: externalError, t, theme, initialTelegr
     ? `${baseUrl}council_logo_black.png`
     : `${baseUrl}council_logo_white.png`;
 
+  const validateTelegram = (value) => {
+    const trimmedValue = value.trim();
+    
+    if (!trimmedValue.startsWith('@')) {
+      return t?.('telegramMustStartWithAt') || 'Telegram username must start with @';
+    }
+    
+    const username = trimmedValue.substring(1);
+    if (username.length < 3) {
+      return t?.('telegramTooShort') || 'Telegram username must be at least 5 characters after @';
+    }
+    
+    const latinPattern = /^[a-zA-Z0-9_]+$/;
+    if (!latinPattern.test(username)) {
+      return t?.('telegramLatinOnly') || 'Telegram username must contain only latin letters, numbers, and underscores';
+    }
+    
+    return null;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
     if (!telegram.trim() || !password.trim()) {
       setError(t?.('loginFieldsRequired') || 'Please provide Telegram and password');
+      return;
+    }
+
+    const telegramError = validateTelegram(telegram);
+    if (telegramError) {
+      setError(telegramError);
       return;
     }
 

@@ -214,6 +214,40 @@ export const api = {
   },
 
   /**
+   * Get council settings for leads mode.
+   */
+  async getLeadsCouncilSettings() {
+    const response = await fetch(`${API_BASE}/api/leads/council-settings`, {
+      headers: withAuth(),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to get leads council settings');
+    }
+    return response.json();
+  },
+
+  /**
+   * Set council settings for leads mode.
+   */
+  async setLeadsCouncilSettings(personalPrompt, templateId) {
+    const response = await fetch(`${API_BASE}/api/leads/council-settings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...withAuth(),
+      },
+      body: JSON.stringify({
+        personal_prompt: personalPrompt,
+        template_id: templateId,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to update leads council settings');
+    }
+    return response.json();
+  },
+
+  /**
    * List all conversations.
    */
   async listConversations() {

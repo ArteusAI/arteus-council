@@ -271,6 +271,10 @@ function App() {
       } else if (!currentConversationId) {
         // Has conversations but none selected - select the most recent (first in list)
         setCurrentConversationId(convs[0].id);
+      } else if (convs.find(c => c.id === currentConversationId)) {
+        // currentConversationId is already set and valid - load it explicitly
+        // (useEffect won't trigger since the value didn't change)
+        loadConversation(currentConversationId);
       }
     } catch (error) {
       console.error('Failed to load conversations:', error);
@@ -288,22 +292,23 @@ function App() {
         })
       ];
 
-      // Only load council settings in normal mode
-      if (!leadsMode) {
-        promises.push(
-          api.getCouncilSettings().catch(e => {
-            console.warn('Failed to load council settings:', e);
-            return { personal_prompt: '', template_id: 'default', base_system_prompt: '', base_system_prompt_id: 'arteus' };
-          })
-        );
-      }
+      // Load council settings (different endpoints for leads vs normal mode)
+      promises.push(
+        leadsMode
+          ? api.getLeadsCouncilSettings().catch(e => {
+              console.warn('Failed to load leads council settings:', e);
+              return { personal_prompt: '', template_id: 'default' };
+            })
+          : api.getCouncilSettings().catch(e => {
+              console.warn('Failed to load council settings:', e);
+              return { personal_prompt: '', template_id: 'default', base_system_prompt: '', base_system_prompt_id: 'arteus' };
+            })
+      );
 
       const results = await Promise.all(promises);
       const data = results[0];
       const templatesData = results[1];
-      const settings = leadsMode 
-        ? { personal_prompt: '', template_id: 'default', base_system_prompt: '', base_system_prompt_id: fixedIdentityId || 'arteus' }
-        : results[2];
+      const settings = results[2];
 
       const councilList = data.council_models || [];
       const templates = templatesData.templates || [];

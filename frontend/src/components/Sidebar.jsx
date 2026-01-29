@@ -18,6 +18,7 @@ export default function Sidebar({
   t,
   user,
   onLogout,
+  leadsMode = false,
 }) {
   const [showEasterEgg, setShowEasterEgg] = useState(false);
   const [showPersonalization, setShowPersonalization] = useState(false);
@@ -71,6 +72,7 @@ export default function Sidebar({
         onClose={() => setShowPersonalization(false)}
         t={t}
         language={language}
+        leadsMode={leadsMode}
       />
       <div className="sidebar-header">
         <div

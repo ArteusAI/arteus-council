@@ -6,6 +6,7 @@ from .config import (
     COUNCIL_MODELS,
     CHAIRMAN_MODEL,
     BASE_SYSTEM_PROMPT,
+    PERSONALIZATION_TEMPLATES,
     LEADS_MODE,
     LEADS_CHAIRMAN_MODEL,
 )
@@ -236,6 +237,32 @@ IMPORTANT FORMATTING RULES:
 - CRITICAL: All URLs must be formatted as proper Markdown links with descriptive text: [Link text](URL)
 - Never output bare URLs - always wrap them in Markdown link syntax
 - For demo/video links, use descriptive text like "Watch demo", "View demonstration", etc.
+
+LANGUAGE SELECTION:
+- Respond in the same language as the user's question
+- If the question contains only a URL with no text:
+  * If domain ends with .ru → respond in Russian
+  * Otherwise → respond in English
+
+CLOSING SECTION:
+After providing your comprehensive answer, conclude with the following (translate to the same language as your response).
+Use proper markdown formatting with line breaks between each line:
+
+---
+
+**Make processes more efficient with Arteus.**
+
+**We will prove to you that AI already works.**
+
+**Contact us on Telegram: [@Leningrad84](https://t.me/Leningrad84)**
+
+Russian version:
+
+**Делайте процессы эффективнее с Arteus.**
+
+**Мы докажем вам, что AI уже работает.**
+
+**Для связи Telegram: [@Leningrad84](https://t.me/Leningrad84)**
 
 Provide a clear, well-reasoned final answer that represents the council's collective wisdom:"""
     if language_note:

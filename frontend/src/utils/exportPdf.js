@@ -53,7 +53,8 @@ function parseInlineMarkdown(text) {
   
   const segments = [];
   // Regex to match **bold**, *italic*, __bold__, _italic_, `code`, [link](url), and plain URLs
-  const regex = /(\*\*(.+?)\*\*)|(__(.+?)__)|(\*(.+?)\*)|(_([^_]+)_)|(`([^`]+)`)|(\[([^\]]+)\]\(([^)]+)\))|(https?:\/\/[^\s<>\[\]"']+)/g;
+  // IMPORTANT: Always convert markdown links [text](url) to clickable PDF links
+  const regex = /(\*\*(.+?)\*\*)|(__(.+?)__)|(\*(.+?)\*)|(_([^_]+)_)|(`([^`]+)`)|(\[([^\]]+)\]\(([^)]+)\))|(https?:\/\/[^\s<>\[\]"'()]+)/g;
   
   let lastIndex = 0;
   let match;
@@ -225,11 +226,13 @@ function renderStyledLine(doc, segments, x, y, fonts) {
     }
     
     // For links, use blue color and add clickable area
+    // IMPORTANT: Always render markdown links [text](url) and plain URLs as clickable PDF links
     if (segment.style === 'link' && segment.url) {
       doc.setTextColor(30, 90, 180);
       const textWidth = doc.getTextWidth(segment.text);
       doc.text(segment.text, currentX, y);
       // Add clickable link area (x, y, width, height, url)
+      // This makes the link clickable in the PDF viewer
       doc.link(currentX, y - 4, textWidth, 6, { url: segment.url });
       currentX += textWidth;
       doc.setTextColor(0, 0, 0);
@@ -514,8 +517,7 @@ export async function exportCouncilToPdf(userQuestion, assistantMessage, t, mode
     doc.setFontSize(13);
     doc.setTextColor(30, 58, 138);
     if (fonts) doc.setFont('DejaVu', 'bold');
-    const chairmanName = assistantMessage.stage3.model ? getModelName(assistantMessage.stage3.model) : 'Chairman';
-    doc.text(`${t('stage3Title')} (${chairmanName}):`, marginLeft, y);
+    doc.text(`${t('stage3Title')}:`, marginLeft, y);
     y += 8;
 
     doc.setTextColor(0, 0, 0);

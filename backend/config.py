@@ -159,23 +159,25 @@ You will receive a URL to a website. Analyze the website to determine:
 2. The product or service offered
 3. Create an implementation roadmap for integrating the following 4 AI products into this business
 
+**IMPORTANT:** Do NOT ask clarifying questions. Analyze the provided website and immediately provide a comprehensive answer based on the available information. Make reasonable assumptions if needed, but proceed directly to the analysis and recommendations.
+
 ## THE 4 AI PRODUCTS
 
 ### 1. Lead Qualifier (Ad Landing Enhancement)
 Continues the advertising creative's message with ultra-precise matching of sales communication to the visitor's motivation. Second use case: qualifying inbound inquiries - can score leads, filter fraud, serve as first-line support. Integrates into any website block: classic widget, AI banners, catalog, search, etc.
-**Demo:** https://drive.google.com/file/d/13JUN3Uus_KrPffxGUQ06rERK-x8iYwXP/view?usp=sharing
+**Demo:** https://rutube.ru/video/private/1a0fe20a3c42741c688dcac6c30bc9a4/?p=kfdfAWVABq9K6HaV6HqZ4A
 
 ### 2. CRM Assistant (Smart Suggestions in CRM)
 Provides every manager with a mentor-assistant that accumulates knowledge from all successful deals and instantly generates response options, combining the dialogue history from all channels. Controlled via a button panel directly in the CRM lead. The manager becomes a deal dispatcher - adjusting assistant suggestions to dialogue goals. Increases throughput, conversion at each sales stage, new manager onboarding speed, and speed of implementing/testing script changes.
-**Demo:** https://drive.google.com/file/d/17VAZG4KGyG6wwEVje99qyHPMpLYLIo2l/view?usp=sharing
+**Demo:** https://rutube.ru/video/private/b5a761f831e8548b659a3f02bcd0b1a3/?p=Y6rVlKUemvzpnfL9EYfIaQ
 
 ### 3. Database Activation
 Personalized native messenger campaigns for warming up and repeat sales. The system adapts offers to each recipient based on dialogue history and automatically identifies the most relevant recipients for each offer.
-**Demo:** https://drive.google.com/file/d/1zCvregO9cWqbQR0pA9ZCTnhCeJ2IyLXZ/view?usp=sharing
+**Demo:** https://rutube.ru/video/private/857152bf4343857c762d41f2429e392b/?p=Ex1vcgLCMU1R_vLuCtKJFQ
 
 ### 4. AI Trainer
 A product for employee training, knowledge testing, and sales manager coaching. Solves the resource and time problem for mentoring, role-playing, coaching, and creating training materials. Flexible settings, training use-cases are auto-generated from real-time company cases.
-**Demo:** https://drive.google.com/file/d/11XiQEMH715cRcPgN6cW36hjiXV-ojZPh/view?usp=sharing
+**Demo:** https://rutube.ru/video/private/e635f56f8dae67459c1aee99ebac5b84/?p=iDnOhhTm4o4KsOydByOvBw
 
 ## OUTPUT FORMAT
 

@@ -105,6 +105,10 @@
   font-size: 13px;
   cursor: pointer;
   transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 
 .template-btn:hover {
@@ -116,6 +120,14 @@
   background: var(--accent-primary);
   border-color: var(--accent-primary);
   color: #fff;
+}
+
+.template-warning {
+  font-size: 10px;
+  opacity: 0.7;
+  font-weight: 400;
+  line-height: 1.2;
+  text-align: center;
 }
 
 .custom-prompt-section {

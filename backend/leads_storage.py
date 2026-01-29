@@ -323,3 +323,55 @@ async def delete_all_conversations(session_id: str) -> int:
         {"$set": {"deleted_at": datetime.now(timezone.utc).isoformat()}},
     )
     return result.modified_count
+
+
+async def get_lead_council_settings(session_id: str) -> dict[str, Any]:
+    """
+    Get council settings for a lead user.
+
+    Args:
+        session_id: Lead session identifier
+
+    Returns:
+        Settings dict with personal_prompt and template_id
+    """
+    db = get_database()
+    leads = db["leads"]
+
+    lead = await leads.find_one({"session_id": session_id})
+    if not lead:
+        # Return defaults if lead not found
+        return {
+            "personal_prompt": "",
+            "template_id": "default",
+        }
+
+    return {
+        "personal_prompt": lead.get("personal_prompt", ""),
+        "template_id": lead.get("template_id", "default"),
+    }
+
+
+async def set_lead_council_settings(
+    session_id: str, personal_prompt: str, template_id: str
+):
+    """
+    Set council settings for a lead user.
+
+    Args:
+        session_id: Lead session identifier
+        personal_prompt: Custom personalization prompt
+        template_id: Selected template identifier
+    """
+    db = get_database()
+    leads = db["leads"]
+
+    await leads.update_one(
+        {"session_id": session_id},
+        {
+            "$set": {
+                "personal_prompt": personal_prompt,
+                "template_id": template_id,
+            }
+        },
+    )

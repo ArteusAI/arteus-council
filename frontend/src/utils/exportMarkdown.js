@@ -19,8 +19,7 @@ export function formatCouncilAsMarkdown(userQuestion, assistantMessage, t, model
   
   // Final Answer (Stage 3)
   if (assistantMessage.stage3) {
-    const chairmanName = assistantMessage.stage3.model ? getModelName(assistantMessage.stage3.model) : 'Chairman';
-    lines.push(`## ${t('stage3Title')} (${chairmanName})`);
+    lines.push(`## ${t('stage3Title')}`);
     lines.push('');
     lines.push(assistantMessage.stage3.response);
     lines.push('');
