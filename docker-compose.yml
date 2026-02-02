@@ -19,6 +19,8 @@ services:
       - BACKEND_PORT=${BACKEND_PORT:-8001}
       - BASE_URL=${BASE_URL:-/}
       - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-}
+      # Conference mode (maintenance screen)
+      - END_CONFERENCE_MODE=${END_CONFERENCE_MODE:-false}
     volumes:
       - data:/app/data
 

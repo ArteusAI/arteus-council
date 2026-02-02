@@ -16,7 +16,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("llm-council")
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any
 
@@ -38,6 +38,7 @@ from .auth import (
     set_user_council_settings,
 )
 from .config import (
+    END_CONFERENCE_MODE,
     COUNCIL_MODELS,
     CHAIRMAN_MODEL,
     DEFAULT_PREFERRED_MODELS,
@@ -82,6 +83,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def END_CONFERENCE_MODE_middleware(request: Request, call_next):
+    """Block most requests when conference mode is enabled."""
+    if END_CONFERENCE_MODE:
+        allowed_paths = ["/api/config", "/", "/docs", "/redoc", "/openapi.json"]
+        path = request.url.path
+        # Check if path is allowed (with or without root path prefix)
+        is_allowed = any(
+            path == p or path == f"{BACKEND_ROOT_PATH}{p}"
+            for p in allowed_paths
+        )
+        if not is_allowed:
+            logger.info(f"Conference mode: blocked request to {path}")
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Service temporarily unavailable - conference mode"}
+            )
+    return await call_next(request)
 
 
 class LoginRequest(BaseModel):
@@ -164,6 +185,7 @@ class ConfigResponse(BaseModel):
     """Application configuration response."""
     leads_mode: bool
     fixed_identity_id: str | None = None
+    END_CONFERENCE_MODE: bool = False
 
 
 @router.get("/")
@@ -178,6 +200,7 @@ async def get_config():
     return ConfigResponse(
         leads_mode=LEADS_MODE,
         fixed_identity_id=LEADS_FIXED_IDENTITY_ID if LEADS_MODE else None,
+        END_CONFERENCE_MODE=END_CONFERENCE_MODE,
     )
 
 

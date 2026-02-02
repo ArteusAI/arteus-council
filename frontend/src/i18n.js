@@ -118,6 +118,10 @@ export const translations = {
     processingInterrupted: 'Processing was interrupted',
     retryQuestion: 'Retry question',
     keepTabOpen: 'Do not close this tab - processing will be interrupted (anti-ddos)',
+    // Conference mode
+    conferenceMode: 'Thank you for being with us!',
+    conferenceModeDesc: 'See you at the next conference. Stay tuned for more!',
+    conferenceTelegramBot: 'Follow updates in our Telegram bot',
   },
   ru: {
     appName: 'Arteus Council',
@@ -237,6 +241,10 @@ export const translations = {
     processingInterrupted: 'Обработка была прервана',
     retryQuestion: 'Повторить запрос',
     keepTabOpen: 'Не закрывайте эту вкладку, чтобы работа продолжалась (anti-ddos)',
+    // Conference mode
+    conferenceMode: 'Спасибо, что были с нами!',
+    conferenceModeDesc: 'Увидимся на следующей конференции. Следите за обновлениями!',
+    conferenceTelegramBot: 'Следите за обновлениями в Telegram боте',
   },
   el: {
     appName: 'Arteus Council',
@@ -356,6 +364,10 @@ export const translations = {
     processingInterrupted: 'Η επεξεργασία διακόπηκε',
     retryQuestion: 'Επανάληψη ερώτησης',
     keepTabOpen: 'Μην κλείσετε αυτήν την καρτέλα — η επεξεργασία θα διακοπεί (anti-ddos)',
+    // Conference mode
+    conferenceMode: 'Ευχαριστούμε που ήσασταν μαζί μας!',
+    conferenceModeDesc: 'Τα λέμε στο επόμενο συνέδριο. Μείνετε συντονισμένοι!',
+    conferenceTelegramBot: 'Ακολουθήστε ενημερώσεις στο Telegram bot μας',
   },
 };
 

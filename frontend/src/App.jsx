@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import LoginInterface from './components/LoginInterface';
 import LeadsLoginInterface from './components/LeadsLoginInterface';
+import ConferenceModeScreen from './components/ConferenceModeScreen';
 import { api } from './api';
 import { translate } from './i18n';
 import './App.css';
@@ -17,6 +18,7 @@ const normalizeLang = (code) => {
 
 function App() {
   const [configLoaded, setConfigLoaded] = useState(false);
+  const [conferenceMode, setConferenceMode] = useState(false);
   const [leadsMode, setLeadsMode] = useState(false);
   const [fixedIdentityId, setFixedIdentityId] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -141,10 +143,12 @@ function App() {
       // First, load config to determine mode
       try {
         const config = await api.getConfig();
+        setConferenceMode(config.END_CONFERENCE_MODE || false);
         setLeadsMode(config.leads_mode || false);
         setFixedIdentityId(config.fixed_identity_id || null);
       } catch (error) {
         console.warn('Config load failed, assuming normal mode:', error);
+        setConferenceMode(false);
         setLeadsMode(false);
       } finally {
         setConfigLoaded(true);
@@ -775,6 +779,15 @@ function App() {
       abortControllerRef.current = null;
     }
   };
+
+  // Show conference mode screen when enabled
+  if (configLoaded && conferenceMode) {
+    return (
+      <div className={`app ${theme}`}>
+        <ConferenceModeScreen t={t} theme={theme} />
+      </div>
+    );
+  }
 
   // Block mobile devices
   if (isMobile) {

@@ -124,6 +124,9 @@ BACKEND_ROOT_PATH = _normalize_root_path(
 MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://167.235.102.202:27017")
 MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "arteus_art_agora")
 
+# Conference mode - shows maintenance screen and blocks API requests
+END_CONFERENCE_MODE = os.getenv("END_CONFERENCE_MODE", "false").lower() == "true"
+
 # Leads mode configuration
 LEADS_MODE = os.getenv("LEADS_MODE", "false").lower() == "true"
 LEADS_MONGODB_URL = os.getenv("LEADS_MONGODB_URL", "mongodb://167.235.102.202:27017")

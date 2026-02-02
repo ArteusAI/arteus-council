@@ -53,8 +53,7 @@ function parseInlineMarkdown(text) {
   
   const segments = [];
   // Regex to match **bold**, *italic*, __bold__, _italic_, `code`, [link](url), and plain URLs
-  // IMPORTANT: Always convert markdown links [text](url) to clickable PDF links
-  const regex = /(\*\*(.+?)\*\*)|(__(.+?)__)|(\*(.+?)\*)|(_([^_]+)_)|(`([^`]+)`)|(\[([^\]]+)\]\(([^)]+)\))|(https?:\/\/[^\s<>\[\]"'()]+)/g;
+  const regex = /(\*\*(.+?)\*\*)|(__(.+?)__)|(\*(.+?)\*)|(_([^_]+)_)|(`([^`]+)`)|(\[([^\]]+)\]\(([^)]+)\))|(https?:\/\/[^\s<>\[\]"']+)/g;
   
   let lastIndex = 0;
   let match;
@@ -226,13 +225,11 @@ function renderStyledLine(doc, segments, x, y, fonts) {
     }
     
     // For links, use blue color and add clickable area
-    // IMPORTANT: Always render markdown links [text](url) and plain URLs as clickable PDF links
     if (segment.style === 'link' && segment.url) {
       doc.setTextColor(30, 90, 180);
       const textWidth = doc.getTextWidth(segment.text);
       doc.text(segment.text, currentX, y);
       // Add clickable link area (x, y, width, height, url)
-      // This makes the link clickable in the PDF viewer
       doc.link(currentX, y - 4, textWidth, 6, { url: segment.url });
       currentX += textWidth;
       doc.setTextColor(0, 0, 0);
