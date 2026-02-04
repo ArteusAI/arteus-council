@@ -146,6 +146,17 @@ function App() {
         setConferenceMode(config.END_CONFERENCE_MODE || false);
         setLeadsMode(config.leads_mode || false);
         setFixedIdentityId(config.fixed_identity_id || null);
+        
+        // Log conference mode activation
+        if (config.END_CONFERENCE_MODE) {
+          if (config.conference_mode_reason === 'api_limits_exhausted') {
+            console.warn('⚠️ HASTA LA VISTA!');
+          } else if (config.conference_mode_reason === 'manual') {
+            console.info('ℹ️ Conference mode activated manually');
+          } else {
+            console.info('ℹ️ Conference mode activated');
+          }
+        }
       } catch (error) {
         console.warn('Config load failed, assuming normal mode:', error);
         setConferenceMode(false);

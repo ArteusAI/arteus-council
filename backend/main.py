@@ -60,6 +60,7 @@ from .council import (
     calculate_aggregate_rankings,
 )
 from .firecrawl import extract_urls, process_message_links
+from .openrouter import check_api_limits
 
 
 def _prefixed_path(path: str) -> str:
@@ -186,6 +187,7 @@ class ConfigResponse(BaseModel):
     leads_mode: bool
     fixed_identity_id: str | None = None
     END_CONFERENCE_MODE: bool = False
+    conference_mode_reason: str | None = None
 
 
 @router.get("/")
@@ -197,10 +199,26 @@ async def root():
 @router.get("/api/config", response_model=ConfigResponse)
 async def get_config():
     """Return application configuration including mode information."""
+    # Check OpenRouter API limits
+    limits = await check_api_limits()
+    
+    # Activate conference mode if limits are exhausted OR if manually enabled
+    conference_active = END_CONFERENCE_MODE or limits['exhausted']
+    
+    # Determine the reason for conference mode
+    reason = None
+    if conference_active:
+        if limits['exhausted']:
+            reason = 'api_limits_exhausted'
+            logger.warning(f"Conference mode activated: API limits exhausted (remaining: {limits['limit_remaining']})")
+        elif END_CONFERENCE_MODE:
+            reason = 'manual'
+    
     return ConfigResponse(
         leads_mode=LEADS_MODE,
         fixed_identity_id=LEADS_FIXED_IDENTITY_ID if LEADS_MODE else None,
-        END_CONFERENCE_MODE=END_CONFERENCE_MODE,
+        END_CONFERENCE_MODE=conference_active,
+        conference_mode_reason=reason,
     )
 
 

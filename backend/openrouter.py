@@ -133,3 +133,86 @@ async def query_models_parallel(
 
     # Map models to their responses
     return {model: response for model, response in zip(models, responses)}
+
+
+async def check_api_limits() -> Dict[str, Any]:
+    """
+    Check OpenRouter API key limits and credit balance.
+
+    Returns:
+        Dict with keys:
+            - 'exhausted': bool - whether limits are exhausted
+            - 'limit_remaining': float | None - credits remaining
+            - 'is_free_tier': bool - whether on free tier
+            - 'error': str | None - error message if check failed
+    """
+    if not OPENROUTER_API_KEY:
+        return {
+            'exhausted': True,
+            'limit_remaining': 0,
+            'is_free_tier': False,
+            'error': 'No API key configured'
+        }
+
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://openrouter.ai/api/v1/key",
+                headers=headers
+            )
+            
+            # Handle authentication errors specifically
+            if response.status_code == 401:
+                logger.warning("OpenRouter API key is invalid or not configured")
+                return {
+                    'exhausted': True,
+                    'limit_remaining': 0,
+                    'is_free_tier': False,
+                    'error': 'Invalid or missing API key'
+                }
+            
+            response.raise_for_status()
+
+            data = response.json()
+            key_data = data.get('data', {})
+            
+            limit_remaining = key_data.get('limit_remaining')
+            is_free_tier = key_data.get('is_free_tier', False)
+            
+            # Check if exhausted
+            exhausted = False
+            if limit_remaining is not None:
+                # If limit_remaining is 0 or negative, limits are exhausted
+                exhausted = limit_remaining <= 0
+            
+            logger.info(f"OpenRouter limits check: remaining={limit_remaining}, free_tier={is_free_tier}, exhausted={exhausted}")
+            
+            return {
+                'exhausted': exhausted,
+                'limit_remaining': limit_remaining,
+                'is_free_tier': is_free_tier,
+                'error': None
+            }
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Failed to check OpenRouter limits (HTTP {e.response.status_code}): {e}")
+        # Don't activate conference mode on API errors
+        return {
+            'exhausted': False,
+            'limit_remaining': None,
+            'is_free_tier': False,
+            'error': f'HTTP {e.response.status_code}'
+        }
+    except Exception as e:
+        logger.error(f"Failed to check OpenRouter limits: {type(e).__name__}: {e}")
+        # Don't activate conference mode on check failure
+        return {
+            'exhausted': False,
+            'limit_remaining': None,
+            'is_free_tier': False,
+            'error': str(e)
+        }
