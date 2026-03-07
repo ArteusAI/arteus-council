@@ -63,27 +63,26 @@ else:
 
 # Council members - list of OpenRouter model identifiers
 COUNCIL_MODELS = [
-    "openai/gpt-5.2",
-    "google/gemini-3-pro-preview",
-    "anthropic/claude-opus-4.5",
-    "qwen/qwen3-max",
+    "openai/gpt-5.4",
+    "google/gemini-3.1-pro-preview",
+    "anthropic/claude-opus-4.6",
+    "qwen/qwen3.5-397b-a17b",
     "x-ai/grok-4",
-    "moonshotai/kimi-k2-thinking",
+    "moonshotai/kimi-k2.5",
     "deepseek/deepseek-v3.2-speciale",
     "mistralai/mistral-large-2512",
-    "z-ai/glm-4.7",
-    "gigachat/GigaChat-2-Max",
+    "z-ai/glm-5",
     "yandex/aliceai-llm"
 ]
 
 # Chairman model - synthesizes final response
-CHAIRMAN_MODEL = "google/gemini-3-pro-preview"
+CHAIRMAN_MODEL = "google/gemini-3.1-pro-preview"
 
 # Default preferred models to preselect in the UI
 DEFAULT_PREFERRED_MODELS = [
     "openai/gpt-5.2",
-    "anthropic/claude-opus-4.5",
-    "google/gemini-3-pro-preview"
+    "anthropic/claude-opus-4.6",
+    "google/gemini-3.1-pro-preview"
 ]
 
 # OpenRouter API endpoint
@@ -204,6 +203,12 @@ PERSONALIZATION_TEMPLATES = {
         "name": "Creative & Exploratory",
         "name_ru": "Творческий подход",
         "prompt": "Be creative and think outside the box. Explore unconventional solutions and alternative approaches.",
+    },
+    "straight": {
+        "id": "straight",
+        "name": "Straight Talk",
+        "name_ru": "Прямой разговор",
+        "prompt": "Отвечай чётко и по существу. Никакой воды, вводных фраз и расшаркиваний. Можно неформально — главное конкретика. Если что-то не так — скажи прямо. Никаких расшаркиваний, вводных фраз и политкорректного тумана. Сказал — значит сказал. Ответы должны быть детализированными: раскрывай важные шаги, нюансы, ограничения и практические последствия, но без воды.",
     },
     "tractor": {
         "id": "tractor",

@@ -10,6 +10,7 @@ const TEMPLATE_KEYS = {
   expert: 'templateExpert',
   code_focused: 'templateCodeFocused',
   creative: 'templateCreative',
+  straight: 'templateStraight',
   tractor: 'templateTractor',
   marketer: 'templateMarketer',
   custom: 'templateCustom',

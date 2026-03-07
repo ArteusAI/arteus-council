@@ -185,14 +185,14 @@ async def get_user_council_settings(user_id: str) -> dict:
         if doc is None:
             return {
                 "personal_prompt": "",
-                "template_id": "default",
+                "template_id": "straight",
                 "base_system_prompt": BASE_SYSTEM_PROMPT,
                 "base_system_prompt_id": "arteus",
             }
 
         return {
             "personal_prompt": doc.get("personal_prompt", ""),
-            "template_id": doc.get("template_id", "default"),
+            "template_id": doc.get("template_id", "straight"),
             "base_system_prompt": doc.get("base_system_prompt") or (BASE_SYSTEM_PROMPT if doc.get("base_system_prompt_id") == "arteus" else ""),
             "base_system_prompt_id": doc.get("base_system_prompt_id", "arteus"),
         }
@@ -200,7 +200,7 @@ async def get_user_council_settings(user_id: str) -> dict:
         logger.error(f"MongoDB error getting council settings: {e}")
         return {
             "personal_prompt": "",
-            "template_id": "default",
+            "template_id": "straight",
             "base_system_prompt": "",
             "base_system_prompt_id": "arteus",
         }
