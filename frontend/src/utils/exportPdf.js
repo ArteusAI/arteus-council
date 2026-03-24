@@ -409,6 +409,87 @@ async function getImageData(url) {
   }
 }
 
+function getRound(assistantMessage, roundNumber) {
+  return assistantMessage.rounds?.find((round) => round.round === roundNumber) || null;
+}
+
+function renderResponsesSection(doc, y, title, stageData, pageHeight, marginLeft, fonts, mdConfig) {
+  if (!Array.isArray(stageData) || stageData.length === 0) {
+    return y;
+  }
+
+  if (y > pageHeight - 60) {
+    doc.addPage();
+    y = 25;
+  }
+
+  doc.setFontSize(14);
+  doc.setTextColor(30, 58, 138);
+  if (fonts) doc.setFont('DejaVu', 'bold');
+  doc.text(title, marginLeft, y);
+  y += 10;
+
+  const stageMdConfig = { ...mdConfig, baseFontSize: 10, lineHeight: 5 };
+
+  for (const item of stageData) {
+    if (y > pageHeight - 40) {
+      doc.addPage();
+      y = 25;
+    }
+
+    const modelName = item.model?.split('/')[1] || item.model || 'Model';
+    doc.setFontSize(12);
+    doc.setTextColor(60, 60, 60);
+    if (fonts) doc.setFont('DejaVu', 'bold');
+    doc.text(modelName, marginLeft, y);
+    y += 7;
+
+    doc.setTextColor(0, 0, 0);
+    y = renderMarkdownToPdf(doc, item.response || '', y, stageMdConfig);
+    y += 8;
+  }
+
+  return y;
+}
+
+function renderAggregateSection(doc, y, title, rankings, pageHeight, marginLeft, marginBottom, fonts, t) {
+  if (!Array.isArray(rankings) || rankings.length === 0) {
+    return y;
+  }
+
+  if (y > pageHeight - 60) {
+    doc.addPage();
+    y = 25;
+  }
+
+  doc.setFontSize(14);
+  doc.setTextColor(30, 58, 138);
+  if (fonts) doc.setFont('DejaVu', 'bold');
+  doc.text(title, marginLeft, y);
+  y += 10;
+
+  doc.setFontSize(11);
+  doc.setTextColor(0, 0, 0);
+  if (fonts) doc.setFont('DejaVu', 'normal');
+
+  for (const item of rankings) {
+    if (y > pageHeight - marginBottom) {
+      doc.addPage();
+      y = 25;
+    }
+    const modelName = item.model?.split('/')[1] || item.model || 'Model';
+    const avg = typeof item.average_rank === 'number'
+      ? item.average_rank.toFixed(2)
+      : 'N/A';
+    const votes = item.rankings_count ?? 0;
+    const avgText = `${t('avgShort')}: ${avg}, ${t('votes')}: ${votes}`;
+    doc.text(`${modelName} - ${avgText}`, marginLeft, y);
+    y += 7;
+  }
+
+  return y;
+}
+
 /**
  * Export council response to PDF with Cyrillic support.
  */
@@ -444,6 +525,16 @@ export async function exportCouncilToPdf(userQuestion, assistantMessage, t) {
   const marginBottom = 25;
   const contentWidth = pageWidth - marginLeft - marginRight;
   const lineHeight = 6;
+  const round1 = getRound(assistantMessage, 1);
+  const round2 = getRound(assistantMessage, 2);
+  const round1Stage1 = round1?.stage1 || assistantMessage.stage1 || [];
+  const round1Rankings = round1?.metadata?.aggregate_rankings
+    || assistantMessage.metadata?.aggregate_rankings
+    || [];
+  const round2Stage1 = round2?.stage1 || [];
+  const round2Rankings = round2?.metadata?.aggregate_rankings
+    || assistantMessage.metadata?.round2?.aggregate_rankings
+    || [];
 
   let y = 25;
 
@@ -511,75 +602,50 @@ export async function exportCouncilToPdf(userQuestion, assistantMessage, t) {
   doc.addPage();
   y = 20;
 
-  // Stage 1: Individual Responses
-  const stage1Data = assistantMessage.stage1;
-  if (stage1Data && (Array.isArray(stage1Data) ? stage1Data.length > 0 : Object.keys(stage1Data).length > 0)) {
-    doc.setFontSize(14);
-    doc.setTextColor(30, 58, 138);
-    if (fonts) doc.setFont('DejaVu', 'bold');
-    doc.text(t('stage1Title'), marginLeft, y);
-    y += 10;
+  y = renderResponsesSection(
+    doc,
+    y,
+    t('stage1Title'),
+    round1Stage1,
+    pageHeight,
+    marginLeft,
+    fonts,
+    mdConfig,
+  );
+  y = renderAggregateSection(
+    doc,
+    y,
+    t('aggregateRankings'),
+    round1Rankings,
+    pageHeight,
+    marginLeft,
+    marginBottom,
+    fonts,
+    t,
+  );
 
-    const entries = Array.isArray(stage1Data)
-      ? stage1Data.map((item) => [item.model, item.response])
-      : Object.entries(stage1Data);
-
-    const stage1MdConfig = { ...mdConfig, baseFontSize: 10, lineHeight: 5 };
-    
-    for (const [model, response] of entries) {
-      if (y > pageHeight - 40) {
-        doc.addPage();
-        y = 25;
-      }
-
-      const modelName = String(model).split('/')[1] || String(model);
-      doc.setFontSize(12);
-      doc.setTextColor(60, 60, 60);
-      if (fonts) doc.setFont('DejaVu', 'bold');
-      doc.text(modelName, marginLeft, y);
-      y += 7;
-
-      doc.setTextColor(0, 0, 0);
-      const responseText = typeof response === 'string' ? response : String(response || '');
-      y = renderMarkdownToPdf(doc, responseText, y, stage1MdConfig);
-      y += 8;
-    }
-  }
-
-  // Stage 2: Rankings Summary
-  if (assistantMessage.metadata?.aggregate_rankings) {
-    if (y > pageHeight - 60) {
-      doc.addPage();
-      y = 25;
-    }
-
-    doc.setFontSize(14);
-    doc.setTextColor(30, 58, 138);
-    if (fonts) doc.setFont('DejaVu', 'bold');
-    doc.text(t('aggregateRankings'), marginLeft, y);
-    y += 10;
-
-    doc.setFontSize(11);
-    doc.setTextColor(0, 0, 0);
-    if (fonts) doc.setFont('DejaVu', 'normal');
-
-    const rankings = assistantMessage.metadata.aggregate_rankings;
-    const sortedModels = Object.entries(rankings)
-      .filter(([, data]) => data && typeof data.average === 'number')
-      .sort((a, b) => a[1].average - b[1].average);
-
-    for (const [model, data] of sortedModels) {
-      if (y > pageHeight - marginBottom) {
-        doc.addPage();
-        y = 25;
-      }
-      const modelName = model.split('/')[1] || model;
-      const avg = typeof data.average === 'number' ? data.average.toFixed(2) : 'N/A';
-      const votes = data.votes ?? 0;
-      const avgText = `${t('avgShort')}: ${avg}, ${t('votes')}: ${votes}`;
-      doc.text(`${modelName} - ${avgText}`, marginLeft, y);
-      y += 7;
-    }
+  if (round2Stage1.length > 0) {
+    y = renderResponsesSection(
+      doc,
+      y,
+      t('round2Stage1Title'),
+      round2Stage1,
+      pageHeight,
+      marginLeft,
+      fonts,
+      mdConfig,
+    );
+    y = renderAggregateSection(
+      doc,
+      y,
+      t('round2Stage2Title'),
+      round2Rankings,
+      pageHeight,
+      marginLeft,
+      marginBottom,
+      fonts,
+      t,
+    );
   }
 
   // Save PDF

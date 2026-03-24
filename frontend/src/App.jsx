@@ -22,7 +22,7 @@ function App() {
   const [currentConversationId, setCurrentConversationId] = useState(() => {
     try {
       return localStorage.getItem('arteusCurrentConversationId') || null;
-    } catch (e) {
+    } catch {
       return null;
     }
   });
@@ -32,6 +32,13 @@ function App() {
   const [identityTemplates, setIdentityTemplates] = useState([]);
   const [selectedModels, setSelectedModels] = useState([]);
   const [chairmanModel, setChairmanModel] = useState('');
+  const [enableSecondRound, setEnableSecondRound] = useState(() => {
+    try {
+      return window.sessionStorage.getItem('arteusEnableSecondRound') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [baseSystemPrompt, setBaseSystemPrompt] = useState('');
   const [baseSystemPromptId, setBaseSystemPromptId] = useState('custom');
   const [modelsLoaded, setModelsLoaded] = useState(false);
@@ -150,41 +157,7 @@ function App() {
     setCurrentConversation(null);
   }, []);
 
-  // Load conversations when authenticated
-  useEffect(() => {
-    if (!authChecked) return;
-    if (!user && !ipBypassed) return;
-    loadConversations();
-    loadModels();
-  }, [authChecked, user, ipBypassed]);
-
-  // Load conversation details when selected
-  useEffect(() => {
-    if (currentConversationId) {
-      // If there's an in-progress conversation state for this ID, restore it
-      if (inProgressConversationRef.current && 
-          inProgressConversationRef.current.id === currentConversationId) {
-        setCurrentConversation(inProgressConversationRef.current);
-      } else {
-        loadConversation(currentConversationId);
-      }
-    }
-  }, [currentConversationId]);
-
-  // Save current conversation ID to localStorage when it changes
-  useEffect(() => {
-    try {
-      if (currentConversationId) {
-        localStorage.setItem('arteusCurrentConversationId', currentConversationId);
-      } else {
-        localStorage.removeItem('arteusCurrentConversationId');
-      }
-    } catch (e) {
-      console.warn('Failed to save current conversation ID', e);
-    }
-  }, [currentConversationId]);
-
-  const loadConversations = async () => {
+  const loadConversations = useCallback(async () => {
     try {
       const convs = await api.listConversations();
       setConversations(convs);
@@ -197,9 +170,9 @@ function App() {
     } catch (error) {
       console.error('Failed to load conversations:', error);
     }
-  };
+  }, [currentConversationId]);
 
-  const loadModels = async () => {
+  const loadModels = useCallback(async () => {
     try {
       // Load models, council settings, and identity templates in parallel
       const [data, settings, templatesData] = await Promise.all([
@@ -279,7 +252,50 @@ function App() {
     } finally {
       setModelsLoaded(true);
     }
-  };
+  }, []);
+
+  // Load conversations when authenticated
+  useEffect(() => {
+    if (!authChecked) return;
+    if (!user && !ipBypassed) return;
+    loadConversations();
+    loadModels();
+  }, [authChecked, user, ipBypassed, loadConversations, loadModels]);
+
+  const loadConversation = useCallback(async (id) => {
+    try {
+      const conv = await api.getConversation(id);
+      setCurrentConversation(conv);
+    } catch (error) {
+      console.error('Failed to load conversation:', error);
+    }
+  }, []);
+
+  // Load conversation details when selected
+  useEffect(() => {
+    if (currentConversationId) {
+      // If there's an in-progress conversation state for this ID, restore it
+      if (inProgressConversationRef.current && 
+          inProgressConversationRef.current.id === currentConversationId) {
+        setCurrentConversation(inProgressConversationRef.current);
+      } else {
+        loadConversation(currentConversationId);
+      }
+    }
+  }, [currentConversationId, loadConversation]);
+
+  // Save current conversation ID to localStorage when it changes
+  useEffect(() => {
+    try {
+      if (currentConversationId) {
+        localStorage.setItem('arteusCurrentConversationId', currentConversationId);
+      } else {
+        localStorage.removeItem('arteusCurrentConversationId');
+      }
+    } catch (e) {
+      console.warn('Failed to save current conversation ID', e);
+    }
+  }, [currentConversationId]);
 
   // Save selected models to sessionStorage when they change
   useEffect(() => {
@@ -301,14 +317,16 @@ function App() {
     }
   }, [chairmanModel, modelsLoaded]);
 
-  const loadConversation = async (id) => {
+  useEffect(() => {
     try {
-      const conv = await api.getConversation(id);
-      setCurrentConversation(conv);
-    } catch (error) {
-      console.error('Failed to load conversation:', error);
+      window.sessionStorage.setItem(
+        'arteusEnableSecondRound',
+        enableSecondRound ? 'true' : 'false'
+      );
+    } catch (e) {
+      console.warn('Failed to save brain mode', e);
     }
-  };
+  }, [enableSecondRound]);
 
   const handleNewConversation = async () => {
     try {
@@ -375,10 +393,6 @@ function App() {
     );
   };
 
-  const resetSelectedModels = () => {
-    setSelectedModels(availableModels);
-  };
-
   const notifyJobComplete = (titleText, bodyText) => {
     if (typeof window === 'undefined' || !('Notification' in window)) return;
     const show = () => {
@@ -442,17 +456,27 @@ function App() {
         stage1: null,
         stage2: null,
         stage3: null,
-        metadata: null,
+        metadata: {
+          second_round_enabled: enableSecondRound,
+          second_round_status: 'skipped',
+          round2_finalists: [],
+          round2: null,
+        },
+        rounds: [],
         scrapedLinks: null,
         loading: {
           scraping: false,
           stage1: false,
           stage2: false,
+          round2Stage1: false,
+          round2Stage2: false,
           stage3: false,
         },
         progress: {
           stage1: { completed: [], total: [] },
           stage2: { completed: [], total: [] },
+          round2Stage1: { completed: [], total: [] },
+          round2Stage2: { completed: [], total: [] },
         },
       };
 
@@ -498,6 +522,7 @@ function App() {
         chairmanModel,
         language,
         effectiveBasePrompt,
+        enableSecondRound,
         (eventType, event) => {
         switch (eventType) {
           case 'scraping_start':
@@ -588,7 +613,128 @@ function App() {
               const lastMsg = messages[messages.length - 1];
               lastMsg.stage2 = event.data;
               lastMsg.metadata = event.metadata;
+              lastMsg.rounds = [
+                {
+                  round: 1,
+                  stage1: lastMsg.stage1 || [],
+                  stage2: event.data || [],
+                  metadata: event.metadata || null,
+                },
+              ];
               lastMsg.loading.stage2 = false;
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'round2_stage1_start':
+            updateConversationState((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              lastMsg.loading.round2Stage1 = true;
+              lastMsg.progress.round2Stage1.total = event.data?.models || [];
+              lastMsg.progress.round2Stage1.completed = [];
+              lastMsg.metadata = {
+                ...(lastMsg.metadata || {}),
+                second_round_enabled: true,
+                round2_finalists: event.data?.finalists || event.data?.models || [],
+              };
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'round2_stage1_model_complete':
+            updateConversationState((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              if (!lastMsg.progress.round2Stage1.completed.includes(event.data.model)) {
+                lastMsg.progress.round2Stage1.completed = [
+                  ...lastMsg.progress.round2Stage1.completed,
+                  event.data.model,
+                ];
+              }
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'round2_stage1_complete':
+            updateConversationState((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              lastMsg.loading.round2Stage1 = false;
+              lastMsg.metadata = {
+                ...(lastMsg.metadata || {}),
+                second_round_enabled: true,
+                round2_finalists: event.metadata?.finalists || lastMsg.metadata?.round2_finalists || [],
+              };
+              const round1 = lastMsg.rounds?.[0] || {
+                round: 1,
+                stage1: lastMsg.stage1 || [],
+                stage2: lastMsg.stage2 || [],
+                metadata: lastMsg.metadata || null,
+              };
+              lastMsg.rounds = [
+                round1,
+                {
+                  round: 2,
+                  stage1: event.data || [],
+                  stage2: [],
+                  metadata: null,
+                },
+              ];
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'round2_stage2_start':
+            updateConversationState((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              lastMsg.loading.round2Stage2 = true;
+              lastMsg.progress.round2Stage2.total = event.data?.models || [];
+              lastMsg.progress.round2Stage2.completed = [];
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'round2_stage2_model_complete':
+            updateConversationState((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              if (!lastMsg.progress.round2Stage2.completed.includes(event.data.model)) {
+                lastMsg.progress.round2Stage2.completed = [
+                  ...lastMsg.progress.round2Stage2.completed,
+                  event.data.model,
+                ];
+              }
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'round2_stage2_complete':
+            updateConversationState((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              lastMsg.loading.round2Stage2 = false;
+              const round1 = lastMsg.rounds?.[0] || {
+                round: 1,
+                stage1: lastMsg.stage1 || [],
+                stage2: lastMsg.stage2 || [],
+                metadata: lastMsg.metadata || null,
+              };
+              const round2 = lastMsg.rounds?.[1] || {
+                round: 2,
+                stage1: [],
+                stage2: [],
+                metadata: null,
+              };
+              round2.stage2 = event.data || [];
+              round2.metadata = event.metadata || null;
+              lastMsg.rounds = [round1, round2];
+              lastMsg.metadata = {
+                ...(lastMsg.metadata || {}),
+                second_round_enabled: true,
+                round2: event.metadata || null,
+              };
               return { ...prev, messages };
             });
             break;
@@ -597,6 +743,8 @@ function App() {
             updateConversationState((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
+              lastMsg.loading.round2Stage1 = false;
+              lastMsg.loading.round2Stage2 = false;
               lastMsg.loading.stage3 = true;
               return { ...prev, messages };
             });
@@ -607,6 +755,12 @@ function App() {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.stage3 = event.data;
+              if (event.metadata) {
+                lastMsg.metadata = event.metadata;
+              }
+              if (event.rounds) {
+                lastMsg.rounds = event.rounds;
+              }
               lastMsg.loading.stage3 = false;
               return { ...prev, messages };
             });
@@ -742,9 +896,10 @@ function App() {
         availableModels={availableModels}
         selectedModels={selectedModels}
         onToggleModel={toggleModelSelection}
-        onResetModels={resetSelectedModels}
         chairmanModel={chairmanModel}
         onSelectChairman={setChairmanModel}
+        enableSecondRound={enableSecondRound}
+        onSetSecondRound={setEnableSecondRound}
         baseSystemPrompt={baseSystemPrompt}
         baseSystemPromptId={baseSystemPromptId}
         identityTemplates={identityTemplates}

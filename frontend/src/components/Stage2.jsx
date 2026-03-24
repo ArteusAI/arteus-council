@@ -14,16 +14,16 @@ function deAnonymizeText(text, labelToModel) {
   return result;
 }
 
-export default function Stage2({ rankings, labelToModel, aggregateRankings, t }) {
+export default function Stage2({ rankings, labelToModel, aggregateRankings, title, t }) {
   const [activeTab, setActiveTab] = useState(0);
 
   if (!rankings || rankings.length === 0) {
     return null;
   }
 
-  return (
+    return (
     <div className="stage stage2">
-      <h3 className="stage-title">{t('stage2Title')}</h3>
+      <h3 className="stage-title">{title || t('stage2Title')}</h3>
 
       <h4>{t('rawEvaluations')}</h4>
       <p className="stage-description">

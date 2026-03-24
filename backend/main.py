@@ -42,12 +42,17 @@ from .config import (
     COUNCIL_IDENTITY_TEMPLATES,
 )
 from .council import (
+    build_label_to_model,
+    build_round_metadata,
+    build_round_payload,
+    calculate_second_round_status,
+    select_second_round_finalists,
     run_full_council,
     generate_conversation_title,
     stage1_collect_responses,
+    stage1_collect_revised_responses,
     stage2_collect_rankings,
     stage3_synthesize_final,
-    calculate_aggregate_rankings,
 )
 from .firecrawl import extract_urls, process_message_links
 
@@ -102,6 +107,7 @@ class SendMessageRequest(BaseModel):
     chairman_model: str | None = None
     language: str | None = None
     base_system_prompt: str | None = None
+    enable_second_round: bool = False
 
 
 class ConversationMetadata(BaseModel):
@@ -336,13 +342,14 @@ async def send_message(conversation_id: str, request: SendMessageRequest, user: 
         storage.update_conversation_title(user.user_id, conversation_id, title)
 
     # Run the 3-stage council process
-    stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
+    stage1_results, stage2_results, stage3_result, metadata, rounds = await run_full_council(
         enriched_content,
         models=request.models,
         chairman_model=request.chairman_model,
         language=request.language,
         personal_prompt=personal_prompt,
         base_system_prompt=base_system_prompt,
+        enable_second_round=request.enable_second_round,
     )
 
     # Add assistant message with all stages
@@ -351,7 +358,10 @@ async def send_message(conversation_id: str, request: SendMessageRequest, user: 
         conversation_id,
         stage1_results,
         stage2_results,
-        stage3_result
+        stage3_result,
+        metadata=metadata,
+        rounds=rounds,
+        scraped_links=link_metadata,
     )
 
     # Return the complete response with metadata
@@ -359,7 +369,8 @@ async def send_message(conversation_id: str, request: SendMessageRequest, user: 
         "stage1": stage1_results,
         "stage2": stage2_results,
         "stage3": stage3_result,
-        "metadata": metadata
+        "metadata": metadata,
+        "rounds": rounds,
     }
 
 
@@ -524,11 +535,147 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
                 last_reported_count += 1
 
             stage2_results, label_to_model = stage2_task.result()
-            
-            aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
+            round1_metadata = build_round_metadata(stage2_results, label_to_model)
+            rounds = [build_round_payload(1, stage1_results, stage2_results, round1_metadata)]
             stage2_duration = time.time() - stage2_start
             logger.info(f"[{conversation_id[:8]}] Stage 2 complete in {stage2_duration:.1f}s, {len(stage2_results)} rankings")
-            yield f"data: {sse_json({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
+            yield f"data: {sse_json({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {**round1_metadata, 'second_round_enabled': request.enable_second_round}})}\n\n"
+
+            round2_stage1_results = []
+            round2_stage2_results = []
+            round2_metadata = None
+            finalists = []
+            second_round_status = "skipped"
+
+            if request.enable_second_round:
+                finalists = select_second_round_finalists(
+                    stage1_results,
+                    round1_metadata["aggregate_rankings"],
+                )
+
+                if len(finalists) >= 2:
+                    try:
+                        round2_stage1_start = time.time()
+                        logger.info(
+                            f"[{conversation_id[:8]}] Round 2 Stage 1 starting with finalists={finalists}"
+                        )
+
+                        completed_round2_stage1_models = []
+
+                        def round2_stage1_callback(model, response):
+                            completed_round2_stage1_models.append(model)
+
+                        yield f"data: {sse_json({'type': 'round2_stage1_start', 'data': {'models': finalists, 'finalists': finalists}})}\n\n"
+
+                        round2_stage1_task = asyncio.create_task(stage1_collect_revised_responses(
+                            enriched_content,
+                            stage1_results,
+                            stage2_results,
+                            finalists,
+                            round1_metadata["aggregate_rankings"],
+                            language=request.language,
+                            base_system_prompt=base_system_prompt_to_use,
+                            on_model_complete=round2_stage1_callback,
+                        ))
+                        running_tasks.append(round2_stage1_task)
+
+                        last_reported_count = 0
+                        while not round2_stage1_task.done():
+                            try:
+                                await asyncio.wait_for(asyncio.shield(round2_stage1_task), timeout=HEARTBEAT_INTERVAL)
+                            except asyncio.TimeoutError:
+                                while last_reported_count < len(completed_round2_stage1_models):
+                                    model = completed_round2_stage1_models[last_reported_count]
+                                    yield f"data: {sse_json({'type': 'round2_stage1_model_complete', 'data': {'model': model}})}\n\n"
+                                    last_reported_count += 1
+                                yield f": heartbeat\n\n"
+
+                        while last_reported_count < len(completed_round2_stage1_models):
+                            model = completed_round2_stage1_models[last_reported_count]
+                            yield f"data: {sse_json({'type': 'round2_stage1_model_complete', 'data': {'model': model}})}\n\n"
+                            last_reported_count += 1
+
+                        round2_stage1_results = round2_stage1_task.result()
+                        round2_stage1_duration = time.time() - round2_stage1_start
+                        logger.info(
+                            f"[{conversation_id[:8]}] Round 2 Stage 1 complete in {round2_stage1_duration:.1f}s, {len(round2_stage1_results)} revised responses"
+                        )
+                        yield f"data: {sse_json({'type': 'round2_stage1_complete', 'data': round2_stage1_results, 'metadata': {'finalists': finalists}})}\n\n"
+
+                        if round2_stage1_results:
+                            round2_ranking_models = [item["model"] for item in round2_stage1_results]
+                            round2_label_to_model = build_label_to_model(round2_stage1_results)
+
+                            if len(round2_ranking_models) >= 2:
+                                round2_stage2_start = time.time()
+                                logger.info(
+                                    f"[{conversation_id[:8]}] Round 2 Stage 2 starting with models={round2_ranking_models}"
+                                )
+
+                                completed_round2_stage2_models = []
+
+                                def round2_stage2_callback(model, response):
+                                    completed_round2_stage2_models.append(model)
+
+                                yield f"data: {sse_json({'type': 'round2_stage2_start', 'data': {'models': round2_ranking_models, 'finalists': finalists}})}\n\n"
+
+                                round2_stage2_task = asyncio.create_task(stage2_collect_rankings(
+                                    enriched_content,
+                                    round2_stage1_results,
+                                    models=round2_ranking_models,
+                                    language=request.language,
+                                    base_system_prompt=base_system_prompt_to_use,
+                                    on_model_complete=round2_stage2_callback,
+                                ))
+                                running_tasks.append(round2_stage2_task)
+
+                                last_reported_count = 0
+                                while not round2_stage2_task.done():
+                                    try:
+                                        await asyncio.wait_for(asyncio.shield(round2_stage2_task), timeout=HEARTBEAT_INTERVAL)
+                                    except asyncio.TimeoutError:
+                                        while last_reported_count < len(completed_round2_stage2_models):
+                                            model = completed_round2_stage2_models[last_reported_count]
+                                            yield f"data: {sse_json({'type': 'round2_stage2_model_complete', 'data': {'model': model}})}\n\n"
+                                            last_reported_count += 1
+                                        yield f": heartbeat\n\n"
+
+                                while last_reported_count < len(completed_round2_stage2_models):
+                                    model = completed_round2_stage2_models[last_reported_count]
+                                    yield f"data: {sse_json({'type': 'round2_stage2_model_complete', 'data': {'model': model}})}\n\n"
+                                    last_reported_count += 1
+
+                                round2_stage2_results, round2_label_to_model = round2_stage2_task.result()
+                                round2_stage2_duration = time.time() - round2_stage2_start
+                                logger.info(
+                                    f"[{conversation_id[:8]}] Round 2 Stage 2 complete in {round2_stage2_duration:.1f}s, {len(round2_stage2_results)} rankings"
+                                )
+
+                            round2_metadata = build_round_metadata(
+                                round2_stage2_results,
+                                round2_label_to_model,
+                            )
+                            rounds.append(
+                                build_round_payload(
+                                    2,
+                                    round2_stage1_results,
+                                    round2_stage2_results,
+                                    round2_metadata,
+                                )
+                            )
+                            second_round_status = calculate_second_round_status(
+                                finalists,
+                                round2_stage1_results,
+                                round2_stage2_results,
+                            )
+
+                            if len(round2_stage1_results) >= 2:
+                                yield f"data: {sse_json({'type': 'round2_stage2_complete', 'data': round2_stage2_results, 'metadata': round2_metadata})}\n\n"
+                        else:
+                            second_round_status = "failed"
+                    except Exception:
+                        logger.exception(f"[{conversation_id[:8]}] Round 2 failed unexpectedly")
+                        second_round_status = "failed"
 
             # Stage 3: Synthesize final answer
             stage3_start = time.time()
@@ -543,6 +690,9 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
                 language=request.language,
                 personal_prompt=personal_prompt,
                 base_system_prompt=base_system_prompt_to_use,
+                round2_stage1_results=round2_stage1_results,
+                round2_stage2_results=round2_stage2_results,
+                round2_finalists=finalists,
             ))
             running_tasks.append(stage3_task)
             while not stage3_task.done():
@@ -551,10 +701,19 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
                 except asyncio.TimeoutError:
                     yield f": heartbeat\n\n"
             stage3_result = stage3_task.result()
+
+            metadata = {
+                "label_to_model": round1_metadata["label_to_model"],
+                "aggregate_rankings": round1_metadata["aggregate_rankings"],
+                "second_round_enabled": request.enable_second_round,
+                "second_round_status": second_round_status,
+                "round2_finalists": finalists,
+                "round2": round2_metadata,
+            }
             
             stage3_duration = time.time() - stage3_start
             logger.info(f"[{conversation_id[:8]}] Stage 3 complete in {stage3_duration:.1f}s")
-            yield f"data: {sse_json({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
+            yield f"data: {sse_json({'type': 'stage3_complete', 'data': stage3_result, 'metadata': metadata, 'rounds': rounds})}\n\n"
 
             # Wait for title generation if it was started
             if title_task:
@@ -573,12 +732,15 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
                 conversation_id,
                 stage1_results,
                 stage2_results,
-                stage3_result
+                stage3_result,
+                metadata=metadata,
+                rounds=rounds,
+                scraped_links=link_metadata,
             )
 
             total_duration = time.time() - request_start
             logger.info(f"[{conversation_id[:8]}] Stream complete, total={total_duration:.1f}s")
-            yield f"data: {sse_json({'type': 'complete'})}\n\n"
+            yield f"data: {sse_json({'type': 'complete', 'metadata': metadata, 'rounds': rounds})}\n\n"
 
         except asyncio.CancelledError:
             elapsed = time.time() - request_start

@@ -70,6 +70,32 @@ function ScrapedLinkCard({ link, t }) {
   );
 }
 
+function BrainGlyph({ count }) {
+  return (
+    <span className={`brain-glyph brain-glyph-${count}`} aria-hidden="true">
+      {Array.from({ length: count }, (_, index) => (
+        <svg
+          key={index}
+          className="brain-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.1"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M9 4.5a3 3 0 0 0-3 3v.4A3.5 3.5 0 0 0 4.5 11c0 1.4.82 2.6 2 3.17V15A3.5 3.5 0 0 0 10 18.5h2v-14H9Z" />
+          <path d="M15 4.5a3 3 0 0 1 3 3v.4a3.5 3.5 0 0 1 1.5 3.1c0 1.4-.82 2.6-2 3.17V15A3.5 3.5 0 0 1 14 18.5h-2v-14h3Z" />
+          <path d="M9 9a1.75 1.75 0 0 1 1.75-1.75" />
+          <path d="M15 9a1.75 1.75 0 0 0-1.75-1.75" />
+          <path d="M9.25 13.25A1.75 1.75 0 0 0 11 15" />
+          <path d="M14.75 13.25A1.75 1.75 0 0 1 13 15" />
+        </svg>
+      ))}
+    </span>
+  );
+}
+
 export default function ChatInterface({
   conversation,
   onSendMessage,
@@ -77,9 +103,10 @@ export default function ChatInterface({
   availableModels,
   selectedModels,
   onToggleModel,
-  onResetModels,
   chairmanModel,
   onSelectChairman,
+  enableSecondRound,
+  onSetSecondRound,
   baseSystemPrompt,
   baseSystemPromptId,
   identityTemplates,
@@ -107,12 +134,20 @@ export default function ChatInterface({
   // Load draft when conversation changes
   useEffect(() => {
     if (conversation?.id) {
+      let cancelled = false;
       try {
         const savedDraft = localStorage.getItem(`draft_${conversation.id}`);
-        setInput(savedDraft || '');
+        queueMicrotask(() => {
+          if (!cancelled) {
+            setInput(savedDraft || '');
+          }
+        });
       } catch (e) {
         console.warn('Failed to load draft', e);
       }
+      return () => {
+        cancelled = true;
+      };
     }
   }, [conversation?.id]);
 
@@ -167,6 +202,7 @@ export default function ChatInterface({
   };
 
   const shortName = (model) => model.split('/')[1] || model;
+  const formatModelList = (models = []) => models.map(shortName).join(', ');
   const selectedShortNames = selectedModels.map(shortName);
   const selectionSummary = selectedShortNames.length
     ? `${selectedShortNames.slice(0, 3).join(', ')}${
@@ -190,27 +226,48 @@ export default function ChatInterface({
     .filter(m => m.role === 'assistant')
     .slice(-1)[0];
 
+  const getRound = (msg, roundNumber) =>
+    msg?.rounds?.find((round) => round.round === roundNumber) || null;
+
   const calculateProgress = (msg) => {
     if (!msg) return 0;
+    const secondRoundEnabled = Boolean(msg.metadata?.second_round_enabled);
+    const round2 = getRound(msg, 2);
     
     // Check from most advanced stage to least
     if (msg.stage3 !== null && !msg.loading?.stage3) return 100;
-    if (msg.loading?.stage3) return 92;
+    if (msg.loading?.stage3) return secondRoundEnabled ? 95 : 92;
     
-    if (msg.stage2 !== null) return 85;
+    if (round2?.stage2?.length) return 90;
+    if (msg.loading?.round2Stage2) {
+      const completed = msg.progress?.round2Stage2?.completed?.length || 0;
+      const total = msg.progress?.round2Stage2?.total?.length || 1;
+      return 75 + (completed / total) * 15;
+    }
+
+    if (round2?.stage1?.length) return 75;
+    if (msg.loading?.round2Stage1) {
+      const completed = msg.progress?.round2Stage1?.completed?.length || 0;
+      const total = msg.progress?.round2Stage1?.total?.length || 1;
+      return 55 + (completed / total) * 20;
+    }
+
+    if (msg.stage2 !== null) return secondRoundEnabled ? 55 : 85;
     if (msg.loading?.stage2) {
       const completed = msg.progress?.stage2?.completed?.length || 0;
       const total = msg.progress?.stage2?.total?.length || 1;
-      return 65 + (completed / total) * 20; // 65% to 85%
+      const start = secondRoundEnabled ? 35 : 65;
+      const end = secondRoundEnabled ? 55 : 85;
+      return start + (completed / total) * (end - start);
     }
     
-    if (msg.stage1 !== null) return 60;
+    if (msg.stage1 !== null) return secondRoundEnabled ? 35 : 60;
     if (msg.loading?.stage1) {
       const completed = msg.progress?.stage1?.completed?.length || 0;
       const total = msg.progress?.stage1?.total?.length || 1;
-      // Start from 10% (or 15% if scraped) and go to 60%
+      const end = secondRoundEnabled ? 35 : 60;
       const startBase = msg.scrapedLinks !== null ? 15 : 10;
-      return startBase + (completed / total) * (60 - startBase);
+      return startBase + (completed / total) * (end - startBase);
     }
     
     if (msg.scrapedLinks !== null) return 15;
@@ -395,6 +452,19 @@ export default function ChatInterface({
                 </div>
               ) : (
                 <div className="assistant-message">
+                  {(() => {
+                    const round1 = getRound(msg, 1);
+                    const round2 = getRound(msg, 2);
+                    const round1Stage1 = round1?.stage1 || msg.stage1;
+                    const round1Stage2 = round1?.stage2 || msg.stage2;
+                    const round1Metadata = round1?.metadata || msg.metadata;
+                    const round2Stage1 = round2?.stage1 || [];
+                    const round2Stage2 = round2?.stage2 || [];
+                    const round2Metadata = round2?.metadata || msg.metadata?.round2;
+                    const finalists = msg.metadata?.round2_finalists || [];
+
+                    return (
+                      <>
                   {/* Scraped Links Info */}
                   {msg.scrapedLinks && msg.scrapedLinks.length > 0 && (
                     <div className="scraped-links-section">
@@ -442,7 +512,7 @@ export default function ChatInterface({
                       )}
                     </div>
                   )}
-                  {msg.stage1 && <Stage1 responses={msg.stage1} t={t} />}
+                  {round1Stage1 && <Stage1 responses={round1Stage1} t={t} />}
 
                   {/* Stage 2 */}
                   {msg.loading?.stage2 && (
@@ -472,11 +542,89 @@ export default function ChatInterface({
                       )}
                     </div>
                   )}
-                  {msg.stage2 && (
+                  {round1Stage2 && (
                     <Stage2
-                      rankings={msg.stage2}
-                      labelToModel={msg.metadata?.label_to_model}
-                      aggregateRankings={msg.metadata?.aggregate_rankings}
+                      rankings={round1Stage2}
+                      labelToModel={round1Metadata?.label_to_model}
+                      aggregateRankings={round1Metadata?.aggregate_rankings}
+                      t={t}
+                    />
+                  )}
+
+                  {/* Round 2 */}
+                  {msg.loading?.round2Stage1 && (
+                    <div className="stage-loading-container">
+                      <div className="stage-loading">
+                        <div className="spinner"></div>
+                        <span>{t('round2Stage1Loading')}</span>
+                      </div>
+                      {msg.progress?.round2Stage1?.total?.length > 0 && (
+                        <div className="model-progress-info">
+                          <div className="model-progress-summary">
+                            {msg.progress.round2Stage1.completed.length} / {msg.progress.round2Stage1.total.length} {t('modelsReady')}
+                          </div>
+                          <div className="model-progress-pills">
+                            {msg.progress.round2Stage1.total.map(modelId => {
+                              const isCompleted = msg.progress.round2Stage1.completed.includes(modelId);
+                              const modelName = modelId.split('/')[1] || modelId;
+                              return (
+                                <span key={modelId} className={`model-progress-pill ${isCompleted ? 'completed' : 'pending'}`}>
+                                  {isCompleted && <span className="check-icon">✓</span>}
+                                  {modelName}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {round2Stage1.length > 0 && (
+                    <>
+                      {finalists.length > 0 && (
+                        <div className="round-finalists">
+                          {t('round2Finalists')}: {formatModelList(finalists)}
+                        </div>
+                      )}
+                      <Stage1 responses={round2Stage1} title={t('round2Stage1Title')} t={t} />
+                    </>
+                  )}
+
+                  {msg.loading?.round2Stage2 && (
+                    <div className="stage-loading-container">
+                      <div className="stage-loading">
+                        <div className="spinner"></div>
+                        <span>{t('round2Stage2Loading')}</span>
+                      </div>
+                      {msg.progress?.round2Stage2?.total?.length > 0 && (
+                        <div className="model-progress-info">
+                          <div className="model-progress-summary">
+                            {msg.progress.round2Stage2.completed.length} / {msg.progress.round2Stage2.total.length} {t('modelsRanked')}
+                          </div>
+                          <div className="model-progress-pills">
+                            {msg.progress.round2Stage2.total.map(modelId => {
+                              const isCompleted = msg.progress.round2Stage2.completed.includes(modelId);
+                              const modelName = modelId.split('/')[1] || modelId;
+                              return (
+                                <span key={modelId} className={`model-progress-pill ${isCompleted ? 'completed' : 'pending'}`}>
+                                  {isCompleted && <span className="check-icon">✓</span>}
+                                  {modelName}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {round2Stage2.length > 0 && (
+                    <Stage2
+                      rankings={round2Stage2}
+                      labelToModel={round2Metadata?.label_to_model}
+                      aggregateRankings={round2Metadata?.aggregate_rankings}
+                      title={t('round2Stage2Title')}
                       t={t}
                     />
                   )}
@@ -529,6 +677,9 @@ export default function ChatInterface({
                       </button>
                     </div>
                   )}
+                      </>
+                    );
+                  })()}
                 </div>
               )}
             </div>
@@ -557,18 +708,31 @@ export default function ChatInterface({
             disabled={isLoading || selectedModels.length === 0 || !modelsLoaded}
             rows={1}
           />
-          <button
-            type="submit"
-            className="send-button"
-            disabled={
-              !input.trim() ||
-              isLoading ||
-              selectedModels.length === 0 ||
-              !modelsLoaded
-            }
-          >
-            {t('send')}
-          </button>
+          <div className="input-actions">
+            <button
+              type="button"
+              className={`brain-mode-button ${enableSecondRound ? 'active' : ''}`}
+              onClick={() => onSetSecondRound(!enableSecondRound)}
+              aria-label={`${t('brainModeAriaLabel')}: ${enableSecondRound ? t('brainModeTwo') : t('brainModeOne')}`}
+              aria-pressed={enableSecondRound}
+              data-tooltip={enableSecondRound ? t('brainModeTwo') : t('brainModeOne')}
+              disabled={isLoading || selectedModels.length === 0 || !modelsLoaded}
+            >
+              <BrainGlyph count={1} />
+            </button>
+            <button
+              type="submit"
+              className="send-button"
+              disabled={
+                !input.trim() ||
+                isLoading ||
+                selectedModels.length === 0 ||
+                !modelsLoaded
+              }
+            >
+              {t('send')}
+            </button>
+          </div>
         </form>
       )}
     </div>

@@ -252,7 +252,7 @@ export const api = {
   /**
    * Send a message in a conversation.
    */
-  async sendMessage(conversationId, content, models, chairmanModel, language, baseSystemPrompt) {
+  async sendMessage(conversationId, content, models, chairmanModel, language, baseSystemPrompt, enableSecondRound = false) {
     const payload = { content, language };
     if (models && models.length > 0) {
       payload.models = models;
@@ -262,6 +262,9 @@ export const api = {
     }
     if (baseSystemPrompt) {
       payload.base_system_prompt = baseSystemPrompt;
+    }
+    if (enableSecondRound) {
+      payload.enable_second_round = true;
     }
 
     const response = await fetch(
@@ -293,7 +296,7 @@ export const api = {
    * @param {AbortSignal} signal - Optional AbortSignal to cancel the request
    * @returns {Promise<void>}
    */
-  async sendMessageStream(conversationId, content, models, chairmanModel, language, baseSystemPrompt, onEvent, signal) {
+  async sendMessageStream(conversationId, content, models, chairmanModel, language, baseSystemPrompt, enableSecondRound = false, onEvent, signal) {
     const payload = { content, language };
     if (models && models.length > 0) {
       payload.models = models;
@@ -303,6 +306,9 @@ export const api = {
     }
     if (baseSystemPrompt) {
       payload.base_system_prompt = baseSystemPrompt;
+    }
+    if (enableSecondRound) {
+      payload.enable_second_round = true;
     }
 
     const response = await fetch(

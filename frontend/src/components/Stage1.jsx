@@ -2,16 +2,16 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import './Stage1.css';
 
-export default function Stage1({ responses, t }) {
+export default function Stage1({ responses, title, t }) {
   const [activeTab, setActiveTab] = useState(0);
 
   if (!responses || responses.length === 0) {
     return null;
   }
 
-  return (
+    return (
     <div className="stage stage1">
-      <h3 className="stage-title">{t('stage1Title')}</h3>
+      <h3 className="stage-title">{title || t('stage1Title')}</h3>
 
       <div className="tabs">
         {responses.map((resp, index) => (
