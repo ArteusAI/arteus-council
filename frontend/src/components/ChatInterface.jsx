@@ -99,6 +99,7 @@ function BrainGlyph({ count }) {
 export default function ChatInterface({
   conversation,
   onSendMessage,
+  onRunNextRound,
   isLoading,
   availableModels,
   selectedModels,
@@ -203,6 +204,14 @@ export default function ChatInterface({
 
   const shortName = (model) => model.split('/')[1] || model;
   const formatModelList = (models = []) => models.map(shortName).join(', ');
+  const getUserQuestionForMessage = (messageIndex) => {
+    for (let index = messageIndex - 1; index >= 0; index -= 1) {
+      if (conversation.messages[index]?.role === 'user') {
+        return conversation.messages[index].content || '';
+      }
+    }
+    return '';
+  };
   const selectedShortNames = selectedModels.map(shortName);
   const selectionSummary = selectedShortNames.length
     ? `${selectedShortNames.slice(0, 3).join(', ')}${
@@ -645,8 +654,7 @@ export default function ChatInterface({
                         type="button"
                         className="action-button"
                         onClick={() => {
-                          const userMsg = conversation.messages[index - 1];
-                          const userQuestion = userMsg?.content || '';
+                          const userQuestion = getUserQuestionForMessage(index);
                           exportCouncilToPdf(userQuestion, msg, t);
                         }}
                         title={t('exportPdf')}
@@ -663,8 +671,7 @@ export default function ChatInterface({
                         type="button"
                         className="action-button"
                         onClick={() => {
-                          const userMsg = conversation.messages[index - 1];
-                          const userQuestion = userMsg?.content || '';
+                          const userQuestion = getUserQuestionForMessage(index);
                           handleCopyMarkdown(userQuestion, msg, index);
                         }}
                         title={t('copyMarkdown')}
@@ -675,6 +682,24 @@ export default function ChatInterface({
                         </svg>
                         {copiedIndex === index ? t('copiedToClipboard') : t('copyMarkdown')}
                       </button>
+                      {onRunNextRound &&
+                        index === conversation.messages.length - 1 &&
+                        !msg.metadata?.second_round_enabled &&
+                        getUserQuestionForMessage(index) && (
+                          <button
+                            type="button"
+                            className="action-button primary-action"
+                            onClick={() => onRunNextRound(getUserQuestionForMessage(index))}
+                            title={t('runNextRound')}
+                            disabled={isLoading}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M21 12a9 9 0 1 1-2.64-6.36"/>
+                              <polyline points="21 3 21 9 15 9"/>
+                            </svg>
+                            {t('runNextRound')}
+                          </button>
+                        )}
                     </div>
                   )}
                       </>

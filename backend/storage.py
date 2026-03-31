@@ -191,6 +191,32 @@ def add_assistant_message(
     save_conversation(session_id, conversation)
 
 
+def update_last_assistant_message(
+    session_id: str,
+    conversation_id: str,
+    message: Dict[str, Any],
+):
+    """
+    Replace the latest assistant message in a conversation.
+
+    Args:
+        session_id: Browser session identifier
+        conversation_id: Conversation identifier
+        message: Full assistant message payload to persist
+    """
+    conversation = get_conversation(session_id, conversation_id)
+    if conversation is None:
+        raise ValueError(f"Conversation {conversation_id} not found")
+
+    for index in range(len(conversation["messages"]) - 1, -1, -1):
+        if conversation["messages"][index].get("role") == "assistant":
+            conversation["messages"][index] = message
+            save_conversation(session_id, conversation)
+            return
+
+    raise ValueError(f"Conversation {conversation_id} has no assistant message")
+
+
 def update_conversation_title(session_id: str, conversation_id: str, title: str):
     """
     Update the title of a conversation.

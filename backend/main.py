@@ -108,6 +108,7 @@ class SendMessageRequest(BaseModel):
     language: str | None = None
     base_system_prompt: str | None = None
     enable_second_round: bool = False
+    continue_last_assistant_round: bool = False
 
 
 class ConversationMetadata(BaseModel):
@@ -140,6 +141,94 @@ class CouncilSettingsResponse(BaseModel):
     template_id: str
     base_system_prompt: str
     base_system_prompt_id: str
+
+
+def build_enriched_content_from_saved_links(
+    content: str,
+    scraped_links: List[Dict[str, Any]] | None,
+) -> str:
+    """Rebuild the enriched prompt from persisted scraped link metadata."""
+    enriched_parts = [content]
+    for link in scraped_links or []:
+        markdown = link.get("markdown")
+        url = link.get("url")
+        if link.get("success") and markdown and url:
+            truncated = markdown[:50000] if len(markdown) > 50000 else markdown
+            enriched_parts.append(
+                f'\n\n<link_content url="{url}">\n{truncated}\n</link_content>'
+            )
+    return "".join(enriched_parts)
+
+
+def get_continuation_context(conversation: Dict[str, Any]) -> Dict[str, Any]:
+    """Load the saved round-1 data needed to continue with the next round."""
+    messages = conversation.get("messages") or []
+    if not messages or messages[-1].get("role") != "assistant":
+        raise HTTPException(
+            status_code=400,
+            detail="Next round can only start from the latest assistant result.",
+        )
+
+    assistant_message = messages[-1]
+    assistant_metadata = assistant_message.get("metadata") or {}
+    if assistant_metadata.get("second_round_enabled"):
+        raise HTTPException(
+            status_code=400,
+            detail="The latest assistant result already includes the next round.",
+        )
+
+    user_message = None
+    for index in range(len(messages) - 2, -1, -1):
+        if messages[index].get("role") == "user":
+            user_message = messages[index]
+            break
+
+    if user_message is None or not user_message.get("content"):
+        raise HTTPException(
+            status_code=400,
+            detail="Could not find the original user question for the next round.",
+        )
+
+    stage1_results = assistant_message.get("stage1") or []
+    stage2_results = assistant_message.get("stage2") or []
+    if len(stage1_results) < 2 or not stage2_results:
+        raise HTTPException(
+            status_code=400,
+            detail="The latest assistant result does not have enough round-1 data to continue.",
+        )
+
+    rounds = assistant_message.get("rounds") or []
+    round1_payload = next(
+        (round_payload for round_payload in rounds if round_payload.get("round") == 1),
+        None,
+    )
+    round1_metadata = (round1_payload or {}).get("metadata") or assistant_metadata
+    if not round1_metadata.get("label_to_model") or "aggregate_rankings" not in round1_metadata:
+        label_to_model = build_label_to_model(stage1_results)
+        round1_metadata = build_round_metadata(stage2_results, label_to_model)
+    else:
+        round1_metadata = {
+            "label_to_model": round1_metadata["label_to_model"],
+            "aggregate_rankings": round1_metadata["aggregate_rankings"],
+        }
+
+    persisted_rounds = rounds or [
+        build_round_payload(1, stage1_results, stage2_results, round1_metadata)
+    ]
+    scraped_links = assistant_message.get("scrapedLinks") or []
+
+    return {
+        "user_content": user_message["content"],
+        "stage1_results": stage1_results,
+        "stage2_results": stage2_results,
+        "round1_metadata": round1_metadata,
+        "rounds": persisted_rounds,
+        "scraped_links": scraped_links,
+        "enriched_content": build_enriched_content_from_saved_links(
+            user_message["content"],
+            scraped_links,
+        ),
+    }
 
 
 @router.get("/")
@@ -312,6 +401,12 @@ async def send_message(conversation_id: str, request: SendMessageRequest, user: 
     Send a message and run the 3-stage council process.
     Returns the complete response with all stages.
     """
+    if request.continue_last_assistant_round:
+        raise HTTPException(
+            status_code=400,
+            detail="Next round continuation is only supported via the streaming endpoint.",
+        )
+
     if request.models is not None and len(request.models) == 0:
         raise HTTPException(status_code=400, detail="At least one model must be selected.")
 
@@ -391,6 +486,12 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    continuation_context = (
+        get_continuation_context(conversation)
+        if request.continue_last_assistant_round
+        else None
+    )
+
     # Check if this is the first message
     is_first_message = len(conversation["messages"]) == 0
 
@@ -416,138 +517,146 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
         try:
             models_to_use = request.models or None
             chairman_to_use = request.chairman_model or None
-
-            # Add user message
-            storage.add_user_message(user_id, conversation_id, request.content)
-
-            # Process links in message
-            urls = extract_urls(request.content)
-            enriched_content = request.content
-            link_metadata = []
-            
-            if urls:
-                logger.info(f"[{conversation_id[:8]}] Scraping {len(urls)} URLs...")
-                yield f"data: {sse_json({'type': 'scraping_start', 'data': {'urls': urls}})}\n\n"
-                
-                try:
-                    # Scraping with timeout to avoid blocking indefinitely
-                    scraping_task = asyncio.create_task(process_message_links(request.content))
-                    running_tasks.append(scraping_task)
-                    while not scraping_task.done():
-                        try:
-                            await asyncio.wait_for(asyncio.shield(scraping_task), timeout=HEARTBEAT_INTERVAL)
-                        except asyncio.TimeoutError:
-                            yield f": heartbeat\n\n"
-                    
-                    enriched_content, link_metadata, scrape_status = scraping_task.result()
-                    logger.info(f"[{conversation_id[:8]}] Scraping complete: {len(link_metadata)} links processed")
-                    yield f"data: {sse_json({'type': 'scraping_complete', 'data': {'links': link_metadata}})}\n\n"
-                except Exception as e:
-                    logger.error(f"[{conversation_id[:8]}] Scraping error: {e}")
-                    yield f"data: {sse_json({'type': 'scraping_error', 'message': str(e)})}\n\n"
-
-            # Start title generation in parallel (don't await yet)
             title_task = None
-            if is_first_message:
-                title_task = asyncio.create_task(generate_conversation_title(request.content))
-                running_tasks.append(title_task)
+            if request.continue_last_assistant_round:
+                enriched_content = continuation_context["enriched_content"]
+                link_metadata = continuation_context["scraped_links"]
+                stage1_results = continuation_context["stage1_results"]
+                stage2_results = continuation_context["stage2_results"]
+                round1_metadata = continuation_context["round1_metadata"]
+                rounds = list(continuation_context["rounds"])
+                logger.info(
+                    f"[{conversation_id[:8]}] Continuing next round from saved assistant result"
+                )
+            else:
+                # Add user message
+                storage.add_user_message(user_id, conversation_id, request.content)
 
-            # Stage 1: Collect responses
-            stage1_start = time.time()
-            logger.info(f"[{conversation_id[:8]}] Stage 1 starting...")
-            
-            # Track completed models using a simple list
-            completed_stage1_models = []
-            
-            def stage1_callback(model, response):
-                completed_stage1_models.append(model)
+                # Process links in message
+                urls = extract_urls(request.content)
+                enriched_content = request.content
+                link_metadata = []
 
-            yield f"data: {sse_json({'type': 'stage1_start', 'data': {'models': models_to_use or COUNCIL_MODELS}})}\n\n"
-            
-            stage1_task = asyncio.create_task(stage1_collect_responses(
-                enriched_content,
-                models=models_to_use,
-                language=request.language,
-                base_system_prompt=base_system_prompt_to_use,
-                on_model_complete=stage1_callback
-            ))
-            running_tasks.append(stage1_task)
-            
-            last_reported_count = 0
-            while not stage1_task.done():
-                try:
-                    await asyncio.wait_for(asyncio.shield(stage1_task), timeout=HEARTBEAT_INTERVAL)
-                except asyncio.TimeoutError:
-                    # Send updates for any newly completed models
-                    while last_reported_count < len(completed_stage1_models):
-                        model = completed_stage1_models[last_reported_count]
-                        yield f"data: {sse_json({'type': 'stage1_model_complete', 'data': {'model': model}})}\n\n"
-                        last_reported_count += 1
-                    yield f": heartbeat\n\n"
-            
-            # Send any remaining model completions
-            while last_reported_count < len(completed_stage1_models):
-                model = completed_stage1_models[last_reported_count]
-                yield f"data: {sse_json({'type': 'stage1_model_complete', 'data': {'model': model}})}\n\n"
-                last_reported_count += 1
+                if urls:
+                    logger.info(f"[{conversation_id[:8]}] Scraping {len(urls)} URLs...")
+                    yield f"data: {sse_json({'type': 'scraping_start', 'data': {'urls': urls}})}\n\n"
 
-            stage1_results = stage1_task.result()
-            
-            stage1_duration = time.time() - stage1_start
-            logger.info(f"[{conversation_id[:8]}] Stage 1 complete in {stage1_duration:.1f}s, {len(stage1_results)} responses")
-            yield f"data: {sse_json({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
+                    try:
+                        # Scraping with timeout to avoid blocking indefinitely
+                        scraping_task = asyncio.create_task(process_message_links(request.content))
+                        running_tasks.append(scraping_task)
+                        while not scraping_task.done():
+                            try:
+                                await asyncio.wait_for(asyncio.shield(scraping_task), timeout=HEARTBEAT_INTERVAL)
+                            except asyncio.TimeoutError:
+                                yield f": heartbeat\n\n"
 
-            # Stage 2: Collect rankings
-            stage2_start = time.time()
-            logger.info(f"[{conversation_id[:8]}] Stage 2 starting...")
-            
-            completed_stage2_models = []
-            
-            def stage2_callback(model, response):
-                completed_stage2_models.append(model)
+                        enriched_content, link_metadata, scrape_status = scraping_task.result()
+                        logger.info(f"[{conversation_id[:8]}] Scraping complete: {len(link_metadata)} links processed")
+                        yield f"data: {sse_json({'type': 'scraping_complete', 'data': {'links': link_metadata}})}\n\n"
+                    except Exception as e:
+                        logger.error(f"[{conversation_id[:8]}] Scraping error: {e}")
+                        yield f"data: {sse_json({'type': 'scraping_error', 'message': str(e)})}\n\n"
 
-            yield f"data: {sse_json({'type': 'stage2_start', 'data': {'models': models_to_use or COUNCIL_MODELS}})}\n\n"
-            
-            stage2_task = asyncio.create_task(stage2_collect_rankings(
-                enriched_content,
-                stage1_results,
-                models=models_to_use,
-                language=request.language,
-                base_system_prompt=base_system_prompt_to_use,
-                on_model_complete=stage2_callback
-            ))
-            running_tasks.append(stage2_task)
-            
-            last_reported_count = 0
-            while not stage2_task.done():
-                try:
-                    await asyncio.wait_for(asyncio.shield(stage2_task), timeout=HEARTBEAT_INTERVAL)
-                except asyncio.TimeoutError:
-                    while last_reported_count < len(completed_stage2_models):
-                        model = completed_stage2_models[last_reported_count]
-                        yield f"data: {sse_json({'type': 'stage2_model_complete', 'data': {'model': model}})}\n\n"
-                        last_reported_count += 1
-                    yield f": heartbeat\n\n"
+                # Start title generation in parallel (don't await yet)
+                if is_first_message:
+                    title_task = asyncio.create_task(generate_conversation_title(request.content))
+                    running_tasks.append(title_task)
 
-            while last_reported_count < len(completed_stage2_models):
-                model = completed_stage2_models[last_reported_count]
-                yield f"data: {sse_json({'type': 'stage2_model_complete', 'data': {'model': model}})}\n\n"
-                last_reported_count += 1
+                # Stage 1: Collect responses
+                stage1_start = time.time()
+                logger.info(f"[{conversation_id[:8]}] Stage 1 starting...")
 
-            stage2_results, label_to_model = stage2_task.result()
-            round1_metadata = build_round_metadata(stage2_results, label_to_model)
-            rounds = [build_round_payload(1, stage1_results, stage2_results, round1_metadata)]
-            stage2_duration = time.time() - stage2_start
-            logger.info(f"[{conversation_id[:8]}] Stage 2 complete in {stage2_duration:.1f}s, {len(stage2_results)} rankings")
-            yield f"data: {sse_json({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {**round1_metadata, 'second_round_enabled': request.enable_second_round}})}\n\n"
+                completed_stage1_models = []
+
+                def stage1_callback(model, response):
+                    completed_stage1_models.append(model)
+
+                yield f"data: {sse_json({'type': 'stage1_start', 'data': {'models': models_to_use or COUNCIL_MODELS}})}\n\n"
+
+                stage1_task = asyncio.create_task(stage1_collect_responses(
+                    enriched_content,
+                    models=models_to_use,
+                    language=request.language,
+                    base_system_prompt=base_system_prompt_to_use,
+                    on_model_complete=stage1_callback
+                ))
+                running_tasks.append(stage1_task)
+
+                last_reported_count = 0
+                while not stage1_task.done():
+                    try:
+                        await asyncio.wait_for(asyncio.shield(stage1_task), timeout=HEARTBEAT_INTERVAL)
+                    except asyncio.TimeoutError:
+                        while last_reported_count < len(completed_stage1_models):
+                            model = completed_stage1_models[last_reported_count]
+                            yield f"data: {sse_json({'type': 'stage1_model_complete', 'data': {'model': model}})}\n\n"
+                            last_reported_count += 1
+                        yield f": heartbeat\n\n"
+
+                while last_reported_count < len(completed_stage1_models):
+                    model = completed_stage1_models[last_reported_count]
+                    yield f"data: {sse_json({'type': 'stage1_model_complete', 'data': {'model': model}})}\n\n"
+                    last_reported_count += 1
+
+                stage1_results = stage1_task.result()
+
+                stage1_duration = time.time() - stage1_start
+                logger.info(f"[{conversation_id[:8]}] Stage 1 complete in {stage1_duration:.1f}s, {len(stage1_results)} responses")
+                yield f"data: {sse_json({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
+
+                # Stage 2: Collect rankings
+                stage2_start = time.time()
+                logger.info(f"[{conversation_id[:8]}] Stage 2 starting...")
+
+                completed_stage2_models = []
+
+                def stage2_callback(model, response):
+                    completed_stage2_models.append(model)
+
+                yield f"data: {sse_json({'type': 'stage2_start', 'data': {'models': models_to_use or COUNCIL_MODELS}})}\n\n"
+
+                stage2_task = asyncio.create_task(stage2_collect_rankings(
+                    enriched_content,
+                    stage1_results,
+                    models=models_to_use,
+                    language=request.language,
+                    base_system_prompt=base_system_prompt_to_use,
+                    on_model_complete=stage2_callback
+                ))
+                running_tasks.append(stage2_task)
+
+                last_reported_count = 0
+                while not stage2_task.done():
+                    try:
+                        await asyncio.wait_for(asyncio.shield(stage2_task), timeout=HEARTBEAT_INTERVAL)
+                    except asyncio.TimeoutError:
+                        while last_reported_count < len(completed_stage2_models):
+                            model = completed_stage2_models[last_reported_count]
+                            yield f"data: {sse_json({'type': 'stage2_model_complete', 'data': {'model': model}})}\n\n"
+                            last_reported_count += 1
+                        yield f": heartbeat\n\n"
+
+                while last_reported_count < len(completed_stage2_models):
+                    model = completed_stage2_models[last_reported_count]
+                    yield f"data: {sse_json({'type': 'stage2_model_complete', 'data': {'model': model}})}\n\n"
+                    last_reported_count += 1
+
+                stage2_results, label_to_model = stage2_task.result()
+                round1_metadata = build_round_metadata(stage2_results, label_to_model)
+                rounds = [build_round_payload(1, stage1_results, stage2_results, round1_metadata)]
+                stage2_duration = time.time() - stage2_start
+                logger.info(f"[{conversation_id[:8]}] Stage 2 complete in {stage2_duration:.1f}s, {len(stage2_results)} rankings")
+                yield f"data: {sse_json({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {**round1_metadata, 'second_round_enabled': request.enable_second_round}})}\n\n"
 
             round2_stage1_results = []
             round2_stage2_results = []
             round2_metadata = None
             finalists = []
             second_round_status = "skipped"
+            should_run_next_round = request.enable_second_round or request.continue_last_assistant_round
 
-            if request.enable_second_round:
+            if should_run_next_round:
                 finalists = select_second_round_finalists(
                     stage1_results,
                     round1_metadata["aggregate_rankings"],
@@ -705,7 +814,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
             metadata = {
                 "label_to_model": round1_metadata["label_to_model"],
                 "aggregate_rankings": round1_metadata["aggregate_rankings"],
-                "second_round_enabled": request.enable_second_round,
+                "second_round_enabled": should_run_next_round,
                 "second_round_status": second_round_status,
                 "round2_finalists": finalists,
                 "round2": round2_metadata,
@@ -727,16 +836,32 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
                 yield f"data: {sse_json({'type': 'title_complete', 'data': {'title': title}})}\n\n"
 
             # Save complete assistant message
-            storage.add_assistant_message(
-                user_id,
-                conversation_id,
-                stage1_results,
-                stage2_results,
-                stage3_result,
-                metadata=metadata,
-                rounds=rounds,
-                scraped_links=link_metadata,
-            )
+            assistant_message = {
+                "role": "assistant",
+                "stage1": stage1_results,
+                "stage2": stage2_results,
+                "stage3": stage3_result,
+                "metadata": metadata,
+                "rounds": rounds,
+                "scrapedLinks": link_metadata,
+            }
+            if request.continue_last_assistant_round:
+                storage.update_last_assistant_message(
+                    user_id,
+                    conversation_id,
+                    assistant_message,
+                )
+            else:
+                storage.add_assistant_message(
+                    user_id,
+                    conversation_id,
+                    stage1_results,
+                    stage2_results,
+                    stage3_result,
+                    metadata=metadata,
+                    rounds=rounds,
+                    scraped_links=link_metadata,
+                )
 
             total_duration = time.time() - request_start
             logger.info(f"[{conversation_id[:8]}] Stream complete, total={total_duration:.1f}s")

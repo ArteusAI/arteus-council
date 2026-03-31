@@ -296,7 +296,7 @@ export const api = {
    * @param {AbortSignal} signal - Optional AbortSignal to cancel the request
    * @returns {Promise<void>}
    */
-  async sendMessageStream(conversationId, content, models, chairmanModel, language, baseSystemPrompt, enableSecondRound = false, onEvent, signal) {
+  async sendMessageStream(conversationId, content, models, chairmanModel, language, baseSystemPrompt, enableSecondRound = false, continueLastAssistantRound = false, onEvent, signal) {
     const payload = { content, language };
     if (models && models.length > 0) {
       payload.models = models;
@@ -309,6 +309,9 @@ export const api = {
     }
     if (enableSecondRound) {
       payload.enable_second_round = true;
+    }
+    if (continueLastAssistantRound) {
+      payload.continue_last_assistant_round = true;
     }
 
     const response = await fetch(

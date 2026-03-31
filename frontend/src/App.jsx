@@ -430,9 +430,49 @@ function App() {
     }
   };
 
-  const handleSendMessage = async (content) => {
+  const ensureAssistantRuntimeState = (message) => {
+    message.metadata = {
+      second_round_enabled: false,
+      second_round_status: 'skipped',
+      round2_finalists: [],
+      round2: null,
+      ...(message.metadata || {}),
+    };
+    const loading = message.loading || {};
+    message.loading = {
+      scraping: false,
+      stage1: false,
+      stage2: false,
+      round2Stage1: false,
+      round2Stage2: false,
+      stage3: false,
+      ...loading,
+    };
+    const progress = message.progress || {};
+    message.progress = {
+      stage1: progress.stage1 || { completed: [], total: [] },
+      stage2: progress.stage2 || { completed: [], total: [] },
+      round2Stage1: progress.round2Stage1 || { completed: [], total: [] },
+      round2Stage2: progress.round2Stage2 || { completed: [], total: [] },
+    };
+    if (!message.rounds) {
+      message.rounds = [];
+    }
+    return message;
+  };
+
+  const handleSendMessage = async (content, options = {}) => {
+    const { continueLastAssistantRound = false } = options;
     if (!currentConversationId) return;
     if (!selectedModels || selectedModels.length === 0) return;
+    if (!content?.trim()) return;
+
+    if (continueLastAssistantRound) {
+      const currentMessages = currentConversation?.messages || [];
+      const lastMessage = currentMessages[currentMessages.length - 1];
+      if (!lastMessage || lastMessage.role !== 'assistant') return;
+      if (lastMessage.metadata?.second_round_enabled) return;
+    }
 
     // Abort any previous request
     abortCurrentRequest();
@@ -447,48 +487,73 @@ function App() {
 
     setIsLoading(true);
     try {
-      // Optimistically add user message to UI
-      const userMessage = { role: 'user', content };
-      
-      // Create a partial assistant message that will be updated progressively
-      const assistantMessage = {
-        role: 'assistant',
-        stage1: null,
-        stage2: null,
-        stage3: null,
-        metadata: {
-          second_round_enabled: enableSecondRound,
-          second_round_status: 'skipped',
-          round2_finalists: [],
-          round2: null,
-        },
-        rounds: [],
-        scrapedLinks: null,
-        loading: {
-          scraping: false,
-          stage1: false,
-          stage2: false,
-          round2Stage1: false,
-          round2Stage2: false,
-          stage3: false,
-        },
-        progress: {
-          stage1: { completed: [], total: [] },
-          stage2: { completed: [], total: [] },
-          round2Stage1: { completed: [], total: [] },
-          round2Stage2: { completed: [], total: [] },
-        },
-      };
+      if (continueLastAssistantRound) {
+        setCurrentConversation((prev) => {
+          if (!prev?.messages?.length) return prev;
+          const messages = [...prev.messages];
+          const lastMsg = ensureAssistantRuntimeState(messages[messages.length - 1]);
+          lastMsg.stage3 = null;
+          lastMsg.metadata = {
+            ...lastMsg.metadata,
+            second_round_enabled: false,
+            second_round_status: 'skipped',
+            round2_finalists: [],
+            round2: null,
+          };
+          lastMsg.rounds = (lastMsg.rounds || []).filter((round) => round.round === 1);
+          lastMsg.loading.round2Stage1 = true;
+          lastMsg.loading.round2Stage2 = false;
+          lastMsg.loading.stage3 = false;
+          lastMsg.progress.round2Stage1 = { completed: [], total: [] };
+          lastMsg.progress.round2Stage2 = { completed: [], total: [] };
+          const updated = { ...prev, messages };
+          inProgressConversationRef.current = updated;
+          return updated;
+        });
+      } else {
+        // Optimistically add user message to UI
+        const userMessage = { role: 'user', content };
 
-      // Add both messages and initialize the in-progress state
-      setCurrentConversation((prev) => {
-        const updated = {
-          ...prev,
-          messages: [...prev.messages, userMessage, assistantMessage],
+        // Create a partial assistant message that will be updated progressively
+        const assistantMessage = {
+          role: 'assistant',
+          stage1: null,
+          stage2: null,
+          stage3: null,
+          metadata: {
+            second_round_enabled: enableSecondRound,
+            second_round_status: 'skipped',
+            round2_finalists: [],
+            round2: null,
+          },
+          rounds: [],
+          scrapedLinks: null,
+          loading: {
+            scraping: false,
+            stage1: false,
+            stage2: false,
+            round2Stage1: false,
+            round2Stage2: false,
+            stage3: false,
+          },
+          progress: {
+            stage1: { completed: [], total: [] },
+            stage2: { completed: [], total: [] },
+            round2Stage1: { completed: [], total: [] },
+            round2Stage2: { completed: [], total: [] },
+          },
         };
-        inProgressConversationRef.current = updated;
-        return updated;
-      });
+
+        // Add both messages and initialize the in-progress state
+        setCurrentConversation((prev) => {
+          const updated = {
+            ...prev,
+            messages: [...prev.messages, userMessage, assistantMessage],
+          };
+          inProgressConversationRef.current = updated;
+          return updated;
+        });
+      }
 
       // Helper to update conversation state
       const updateConversationState = (updater) => {
@@ -522,7 +587,8 @@ function App() {
         chairmanModel,
         language,
         effectiveBasePrompt,
-        enableSecondRound,
+        enableSecondRound || continueLastAssistantRound,
+        continueLastAssistantRound,
         (eventType, event) => {
         switch (eventType) {
           case 'scraping_start':
@@ -792,6 +858,9 @@ function App() {
             activeStreamConversationRef.current = null;
             inProgressConversationRef.current = null;
             if (streamConversationId === currentConversationId) {
+              if (continueLastAssistantRound) {
+                loadConversation(streamConversationId);
+              }
               setIsLoading(false);
             }
             break;
@@ -808,11 +877,19 @@ function App() {
         return;
       }
       console.error('Failed to send message:', error);
-      // Remove optimistic messages on error
-      setCurrentConversation((prev) => ({
-        ...prev,
-        messages: prev.messages.slice(0, -2),
-      }));
+      activeStreamConversationRef.current = null;
+      inProgressConversationRef.current = null;
+      if (continueLastAssistantRound) {
+        if (streamConversationId === currentConversationId) {
+          loadConversation(streamConversationId);
+        }
+      } else {
+        // Remove optimistic messages on error
+        setCurrentConversation((prev) => ({
+          ...prev,
+          messages: prev.messages.slice(0, -2),
+        }));
+      }
       setIsLoading(false);
     } finally {
       abortControllerRef.current = null;
@@ -892,6 +969,7 @@ function App() {
       <ChatInterface
         conversation={currentConversation}
         onSendMessage={handleSendMessage}
+        onRunNextRound={(content) => handleSendMessage(content, { continueLastAssistantRound: true })}
         isLoading={isLoading}
         availableModels={availableModels}
         selectedModels={selectedModels}

@@ -371,6 +371,22 @@
   color: var(--text-accent);
 }
 
+.action-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.action-button.primary-action {
+  background: var(--accent-light);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.action-button.primary-action:hover:not(:disabled) {
+  background: var(--accent-primary);
+  color: #fff;
+}
+
 .action-button svg {
   flex-shrink: 0;
 }
