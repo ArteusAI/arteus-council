@@ -56,6 +56,11 @@ function App() {
   const abortControllerRef = useRef(null);
   const activeStreamConversationRef = useRef(null);
   const inProgressConversationRef = useRef(null);
+  const currentConversationIdRef = useRef(currentConversationId);
+
+  useEffect(() => {
+    currentConversationIdRef.current = currentConversationId;
+  }, [currentConversationId]);
 
   // Check for mobile device on mount
   useEffect(() => {
@@ -124,7 +129,7 @@ function App() {
     }
   };
 
-  const t = (key) => translate(language, key);
+  const t = useCallback((key) => translate(language, key), [language]);
 
   // Check authentication on mount
   useEffect(() => {
@@ -262,6 +267,14 @@ function App() {
     loadModels();
   }, [authChecked, user, ipBypassed, loadConversations, loadModels]);
 
+  useEffect(() => {
+    if (!conversations.some((conversation) => conversation.job_status)) return;
+    const intervalId = window.setInterval(() => {
+      loadConversations();
+    }, 5000);
+    return () => window.clearInterval(intervalId);
+  }, [conversations, loadConversations]);
+
   const loadConversation = useCallback(async (id) => {
     try {
       const conv = await api.getConversation(id);
@@ -355,9 +368,11 @@ function App() {
 
   const handleDeleteConversation = async (id) => {
     try {
-      // Abort ongoing request if deleting current conversation
-      if (currentConversationId === id) {
+      // Detach the local observer; the backend delete cancels the job.
+      if (activeStreamConversationRef.current === id) {
         abortCurrentRequest();
+      }
+      if (currentConversationId === id) {
         setIsLoading(false);
       }
       await api.deleteConversation(id);
@@ -430,7 +445,7 @@ function App() {
     }
   };
 
-  const ensureAssistantRuntimeState = (message) => {
+  const ensureAssistantRuntimeState = useCallback((message) => {
     message.metadata = {
       second_round_enabled: false,
       second_round_status: 'skipped',
@@ -459,7 +474,169 @@ function App() {
       message.rounds = [];
     }
     return message;
-  };
+  }, []);
+
+  const setConversationJobStatus = useCallback((conversationId, status) => {
+    setConversations((prev) =>
+      prev.map((conversation) =>
+        conversation.id === conversationId
+          ? { ...conversation, job_status: status }
+          : conversation
+      )
+    );
+  }, []);
+
+  const mergeJobSnapshotIntoConversation = useCallback((conversation, snapshot) => {
+    if (!conversation || !snapshot?.assistant_message) return conversation;
+    const assistantMessage = ensureAssistantRuntimeState(
+      JSON.parse(JSON.stringify(snapshot.assistant_message))
+    );
+    const messages = [...(conversation.messages || [])];
+    if (messages.length === 0 && snapshot.user_message) {
+      messages.push({ ...snapshot.user_message });
+    }
+    const lastIndex = messages.length - 1;
+    if (messages[lastIndex]?.role === 'assistant') {
+      messages[lastIndex] = assistantMessage;
+    } else {
+      messages.push(assistantMessage);
+    }
+    return { ...conversation, messages };
+  }, [ensureAssistantRuntimeState]);
+
+  const applyJobSnapshot = useCallback((conversationId, snapshot) => {
+    if (!snapshot) return;
+    const isActive = Boolean(snapshot.active);
+    setConversationJobStatus(conversationId, isActive ? snapshot.status : null);
+
+    if (currentConversationIdRef.current === conversationId) {
+      setIsLoading(isActive);
+    }
+
+    if (!snapshot.assistant_message) return;
+
+    if (inProgressConversationRef.current?.id === conversationId) {
+      inProgressConversationRef.current = mergeJobSnapshotIntoConversation(
+        inProgressConversationRef.current,
+        snapshot
+      );
+    }
+
+    setCurrentConversation((prev) => {
+      if (prev?.id !== conversationId) return prev;
+      const updated = mergeJobSnapshotIntoConversation(prev, snapshot);
+      inProgressConversationRef.current = updated;
+      return updated;
+    });
+  }, [mergeJobSnapshotIntoConversation, setConversationJobStatus]);
+
+  const handleStreamComplete = useCallback((conversationId) => {
+    setConversationJobStatus(conversationId, null);
+    if (activeStreamConversationRef.current === conversationId) {
+      activeStreamConversationRef.current = null;
+    }
+    if (inProgressConversationRef.current?.id === conversationId) {
+      inProgressConversationRef.current = null;
+    }
+    loadConversations();
+    if (currentConversationIdRef.current === conversationId) {
+      loadConversation(conversationId);
+      setIsLoading(false);
+    }
+    notifyJobComplete(
+      t('jobFinishedTitle'),
+      t('jobFinishedBody')
+    );
+  }, [loadConversation, loadConversations, setConversationJobStatus, t]);
+
+  const handleStreamFailure = useCallback((conversationId, shouldReload = false) => {
+    setConversationJobStatus(conversationId, null);
+    if (activeStreamConversationRef.current === conversationId) {
+      activeStreamConversationRef.current = null;
+    }
+    if (inProgressConversationRef.current?.id === conversationId) {
+      inProgressConversationRef.current = null;
+    }
+    if (currentConversationIdRef.current === conversationId) {
+      if (shouldReload) {
+        loadConversation(conversationId);
+      }
+      setIsLoading(false);
+    }
+  }, [loadConversation, setConversationJobStatus]);
+
+  const connectToJobStream = useCallback((conversationId) => {
+    if (
+      activeStreamConversationRef.current === conversationId &&
+      abortControllerRef.current
+    ) {
+      return;
+    }
+
+    abortCurrentRequest();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    activeStreamConversationRef.current = conversationId;
+    if (currentConversationIdRef.current === conversationId) {
+      setIsLoading(true);
+    }
+
+    api.attachMessageStream(
+      conversationId,
+      (eventType, event) => {
+        if (eventType === 'job_snapshot') {
+          applyJobSnapshot(conversationId, event.data);
+          return;
+        }
+        if (eventType === 'complete') {
+          handleStreamComplete(conversationId);
+          return;
+        }
+        if (eventType === 'error') {
+          console.error('Stream error:', event.message);
+          handleStreamFailure(conversationId, true);
+        }
+      },
+      abortController.signal
+    ).catch((error) => {
+      if (error.name === 'AbortError') return;
+      console.error('Failed to attach to job stream:', error);
+      handleStreamFailure(conversationId, false);
+    }).finally(() => {
+      if (activeStreamConversationRef.current === conversationId) {
+        activeStreamConversationRef.current = null;
+      }
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+      }
+    });
+  }, [
+    abortCurrentRequest,
+    applyJobSnapshot,
+    handleStreamComplete,
+    handleStreamFailure,
+  ]);
+
+  const refreshConversationJob = useCallback(async (conversationId) => {
+    try {
+      const snapshot = await api.getConversationJob(conversationId);
+      applyJobSnapshot(conversationId, snapshot);
+      if (snapshot.active) {
+        connectToJobStream(conversationId);
+      } else if (currentConversationIdRef.current === conversationId) {
+        setIsLoading(false);
+      }
+    } catch (error) {
+      console.warn('Failed to refresh conversation job:', error);
+    }
+  }, [applyJobSnapshot, connectToJobStream]);
+
+  useEffect(() => {
+    if (!currentConversationId || currentConversation?.id !== currentConversationId) {
+      return;
+    }
+    refreshConversationJob(currentConversationId);
+  }, [currentConversation?.id, currentConversationId, refreshConversationJob]);
 
   const handleSendMessage = async (content, options = {}) => {
     const { continueLastAssistantRound = false } = options;
@@ -484,6 +661,7 @@ function App() {
     // Track which conversation this stream belongs to
     const streamConversationId = currentConversationId;
     activeStreamConversationRef.current = streamConversationId;
+    setConversationJobStatus(streamConversationId, 'running');
 
     setIsLoading(true);
     try {
@@ -591,6 +769,10 @@ function App() {
         continueLastAssistantRound,
         (eventType, event) => {
         switch (eventType) {
+          case 'job_snapshot':
+            applyJobSnapshot(streamConversationId, event.data);
+            break;
+
           case 'scraping_start':
             updateConversationState((prev) => {
               const messages = [...prev.messages];
@@ -839,11 +1021,12 @@ function App() {
 
           case 'complete':
             // Stream complete
+            setConversationJobStatus(streamConversationId, null);
             loadConversations();
             activeStreamConversationRef.current = null;
             inProgressConversationRef.current = null;
             // Reload the conversation to get the saved state
-            if (streamConversationId === currentConversationId) {
+            if (streamConversationId === currentConversationIdRef.current) {
               loadConversation(streamConversationId);
               setIsLoading(false);
             }
@@ -855,9 +1038,10 @@ function App() {
 
           case 'error':
             console.error('Stream error:', event.message);
+            setConversationJobStatus(streamConversationId, null);
             activeStreamConversationRef.current = null;
             inProgressConversationRef.current = null;
-            if (streamConversationId === currentConversationId) {
+            if (streamConversationId === currentConversationIdRef.current) {
               if (continueLastAssistantRound) {
                 loadConversation(streamConversationId);
               }
@@ -877,10 +1061,11 @@ function App() {
         return;
       }
       console.error('Failed to send message:', error);
+      setConversationJobStatus(streamConversationId, null);
       activeStreamConversationRef.current = null;
       inProgressConversationRef.current = null;
       if (continueLastAssistantRound) {
-        if (streamConversationId === currentConversationId) {
+        if (streamConversationId === currentConversationIdRef.current) {
           loadConversation(streamConversationId);
         }
       } else {
@@ -892,7 +1077,9 @@ function App() {
       }
       setIsLoading(false);
     } finally {
-      abortControllerRef.current = null;
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+      }
     }
   };
 

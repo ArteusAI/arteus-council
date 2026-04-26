@@ -219,6 +219,22 @@ export const api = {
   },
 
   /**
+   * Get background job status for a conversation.
+   */
+  async getConversationJob(conversationId) {
+    const response = await fetch(
+      `${API_BASE}/api/conversations/${conversationId}/job`,
+      {
+        headers: withAuth(),
+      }
+    );
+    if (!response.ok) {
+      throw new Error('Failed to get conversation job');
+    }
+    return response.json();
+  },
+
+  /**
    * Delete a specific conversation.
    */
   async deleteConversation(conversationId) {
@@ -296,7 +312,7 @@ export const api = {
    * @param {AbortSignal} signal - Optional AbortSignal to cancel the request
    * @returns {Promise<void>}
    */
-  async sendMessageStream(conversationId, content, models, chairmanModel, language, baseSystemPrompt, enableSecondRound = false, continueLastAssistantRound = false, onEvent, signal) {
+  async sendMessageStream(conversationId, content, models, chairmanModel, language, baseSystemPrompt, enableSecondRound = false, continueLastAssistantRound = false, onEvent, signal, attachOnly = false) {
     const payload = { content, language };
     if (models && models.length > 0) {
       payload.models = models;
@@ -312,6 +328,9 @@ export const api = {
     }
     if (continueLastAssistantRound) {
       payload.continue_last_assistant_round = true;
+    }
+    if (attachOnly) {
+      payload.attach_only = true;
     }
 
     const response = await fetch(
@@ -392,5 +411,24 @@ export const api = {
         // Reader already released
       }
     }
+  },
+
+  /**
+   * Attach to an existing background stream without starting a new message.
+   */
+  async attachMessageStream(conversationId, onEvent, signal) {
+    return this.sendMessageStream(
+      conversationId,
+      '',
+      null,
+      null,
+      null,
+      null,
+      false,
+      false,
+      onEvent,
+      signal,
+      true
+    );
   },
 };

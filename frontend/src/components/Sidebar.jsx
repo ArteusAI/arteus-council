@@ -108,7 +108,13 @@ export default function Sidebar({
                     {conv.title || 'New Conversation'}
                   </div>
                   <div className="conversation-meta">
-                    {conv.message_count} messages
+                    {conv.job_status ? (
+                      <span className="conversation-job-status">
+                        {t('jobRunning')}
+                      </span>
+                    ) : (
+                      `${conv.message_count} messages`
+                    )}
                   </div>
                 </div>
                 <button

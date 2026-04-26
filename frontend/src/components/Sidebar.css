@@ -125,6 +125,11 @@
   font-size: 12px;
 }
 
+.conversation-job-status {
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
 .delete-btn {
   opacity: 0;
   width: 24px;
