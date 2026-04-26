@@ -3,11 +3,14 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
+  min-width: 0;
+  overflow: hidden;
   background: var(--bg-primary);
   transition: background 0.3s ease;
 }
 
 .model-controls {
+  min-width: 0;
   padding: 16px 24px 8px 24px;
   border-bottom: 1px solid var(--border-primary);
   background: var(--bg-accent);
@@ -50,9 +53,15 @@
   color: var(--text-primary);
 }
 
+.model-controls-header > div:first-child {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
 .model-controls-subtitle {
   color: var(--text-muted);
   font-size: 14px;
+  overflow-wrap: anywhere;
 }
 
 .model-controls-actions {
@@ -299,6 +308,8 @@
 .messages-container {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
   padding: 24px;
 }
 
@@ -325,6 +336,28 @@
 
 .message-group {
   margin-bottom: 32px;
+}
+
+.message-group,
+.user-message,
+.assistant-message,
+.user-message .message-content,
+.assistant-message > *,
+.assistant-message .stage,
+.assistant-message .tab-content,
+.assistant-message .aggregate-rankings,
+.assistant-message .aggregate-item,
+.assistant-message .final-response,
+.assistant-message .final-text,
+.assistant-message .response-text,
+.assistant-message .ranking-content,
+.assistant-message .scraped-links-section,
+.assistant-message .scraped-link-card,
+.assistant-message .scraped-link-markdown,
+.input-form,
+.message-input {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .user-message,
@@ -400,6 +433,8 @@
   line-height: 1.6;
   max-width: 80%;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease;
 }
 
@@ -551,6 +586,7 @@
   color: var(--text-primary);
   margin-bottom: 6px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .scraped-link-description {
@@ -558,6 +594,7 @@
   color: var(--text-secondary);
   line-height: 1.5;
   margin-bottom: 8px;
+  overflow-wrap: anywhere;
 }
 
 .scraped-link-toggle {
@@ -580,7 +617,8 @@
   font-size: 12px;
   color: var(--accent-blue);
   text-decoration: none;
-  word-break: break-all;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   display: block;
 }
 
@@ -716,6 +754,8 @@
 
 .scraped-link-markdown table {
   width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   margin: 0.75em 0;
 }
@@ -725,6 +765,8 @@
   border: 1px solid var(--border-primary);
   padding: 8px 12px;
   text-align: left;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .scraped-link-markdown th {

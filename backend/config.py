@@ -63,15 +63,16 @@ else:
 
 # Council members - list of OpenRouter model identifiers
 COUNCIL_MODELS = [
-    "openai/gpt-5.4",
+    "openai/gpt-5.5",
     "google/gemini-3.1-pro-preview",
     "anthropic/claude-opus-4.6",
-    "qwen/qwen3.5-397b-a17b",
-    "x-ai/grok-4",
-    "moonshotai/kimi-k2.5",
+    "qwen/qwen3.6-plus",
+    "x-ai/grok-4.20",
+    "moonshotai/kimi-k2.6",
     "deepseek/deepseek-v3.2-speciale",
     "mistralai/mistral-large-2512",
-    "z-ai/glm-5",
+    "z-ai/glm-5.1",
+    "minimax/minimax-m2.7",
     "yandex/aliceai-llm"
 ]
 
