@@ -231,12 +231,79 @@ class CouncilJob:
     def active(self) -> bool:
         return self.status not in TERMINAL_STATUSES
 
+    def progress_percent(self) -> float:
+        """Return a coarse UI progress percentage for the current job state."""
+        if self.status == "queued":
+            return 1
+        if self.status in TERMINAL_STATUSES:
+            return 100 if self.status == "completed" else 0
+
+        message = self.assistant_message or {}
+        loading = message.get("loading") or {}
+        progress = message.get("progress") or {}
+        metadata = message.get("metadata") or {}
+        rounds = message.get("rounds") or []
+        second_round_enabled = bool(metadata.get("second_round_enabled"))
+        round2 = next(
+            (round_payload for round_payload in rounds if round_payload.get("round") == 2),
+            None,
+        )
+
+        if message.get("stage3") is not None and not loading.get("stage3"):
+            return 100
+        if loading.get("stage3"):
+            return 95 if second_round_enabled else 92
+
+        if (round2 or {}).get("stage2"):
+            return 90
+        if loading.get("round2Stage2"):
+            round_progress = progress.get("round2Stage2") or {}
+            completed = len(round_progress.get("completed") or [])
+            total = max(1, len(round_progress.get("total") or []))
+            return 75 + (completed / total) * 15
+
+        if (round2 or {}).get("stage1"):
+            return 75
+        if loading.get("round2Stage1"):
+            round_progress = progress.get("round2Stage1") or {}
+            completed = len(round_progress.get("completed") or [])
+            total = max(1, len(round_progress.get("total") or []))
+            return 55 + (completed / total) * 20
+
+        if message.get("stage2") is not None:
+            return 55 if second_round_enabled else 85
+        if loading.get("stage2"):
+            stage_progress = progress.get("stage2") or {}
+            completed = len(stage_progress.get("completed") or [])
+            total = max(1, len(stage_progress.get("total") or []))
+            start = 35 if second_round_enabled else 65
+            end = 55 if second_round_enabled else 85
+            return start + (completed / total) * (end - start)
+
+        if message.get("stage1") is not None:
+            return 35 if second_round_enabled else 60
+        if loading.get("stage1"):
+            stage_progress = progress.get("stage1") or {}
+            completed = len(stage_progress.get("completed") or [])
+            total = max(1, len(stage_progress.get("total") or []))
+            start = 15 if message.get("scrapedLinks") is not None else 10
+            end = 35 if second_round_enabled else 60
+            return start + (completed / total) * (end - start)
+
+        if message.get("scrapedLinks") is not None:
+            return 15
+        if loading.get("scraping"):
+            return 8
+
+        return 3
+
     def snapshot_data(self) -> Dict[str, Any]:
         """Return a serializable snapshot for polling and reconnects."""
         return {
             "active": self.active,
             "status": self.status,
             "stage": self.stage,
+            "progress": round(self.progress_percent(), 1),
             "error": self.error,
             "started_at": self.started_at,
             "updated_at": self.updated_at,
@@ -786,6 +853,8 @@ class CouncilJobManager:
             item = dict(conversation)
             job = self.get(user_id, item["id"])
             item["job_status"] = job.status if job and job.active else None
+            item["job_stage"] = job.stage if job and job.active else None
+            item["job_progress"] = round(job.progress_percent(), 1) if job and job.active else None
             result.append(item)
         return result
 

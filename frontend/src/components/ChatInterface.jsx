@@ -113,6 +113,8 @@ export default function ChatInterface({
   identityTemplates,
   onUpdateBaseSystemPrompt,
   modelsLoaded,
+  isConversationLoading = false,
+  showConversationLoadingSpinner = false,
   language,
   t,
 }) {
@@ -219,10 +221,20 @@ export default function ChatInterface({
       }`
     : t('selectionNone');
   const chairmanShortName = chairmanModel ? shortName(chairmanModel) : t('none');
+  const conversationLoadingOverlay = isConversationLoading ? (
+    <div className="conversation-loading-overlay">
+      {showConversationLoadingSpinner && (
+        <div className="conversation-loading-spinner">
+          <div className="spinner"></div>
+        </div>
+      )}
+    </div>
+  ) : null;
 
   if (!conversation) {
     return (
-      <div className="chat-interface">
+      <div className={`chat-interface ${isConversationLoading ? 'conversation-switching' : ''}`}>
+        {conversationLoadingOverlay}
         <div className="empty-state">
           <h2>{t('welcomeTitle')}</h2>
           <p>{t('welcomeSubtitle')}</p>
@@ -288,7 +300,8 @@ export default function ChatInterface({
   const progress = isLoading ? calculateProgress(lastAssistantMessage) : 0;
 
   return (
-    <div className="chat-interface">
+    <div className={`chat-interface ${isConversationLoading ? 'conversation-switching' : ''}`}>
+      {conversationLoadingOverlay}
       <div className="model-controls">
         <div className="model-controls-header">
           <div>

@@ -27,6 +27,8 @@ function App() {
     }
   });
   const [currentConversation, setCurrentConversation] = useState(null);
+  const [isConversationLoading, setIsConversationLoading] = useState(false);
+  const [showConversationLoadingSpinner, setShowConversationLoadingSpinner] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [availableModels, setAvailableModels] = useState([]);
   const [identityTemplates, setIdentityTemplates] = useState([]);
@@ -56,11 +58,28 @@ function App() {
   const abortControllerRef = useRef(null);
   const activeStreamConversationRef = useRef(null);
   const inProgressConversationRef = useRef(null);
+  const conversationLoadRequestRef = useRef(0);
+  const conversationLoadDelayRef = useRef(null);
   const currentConversationIdRef = useRef(currentConversationId);
 
   useEffect(() => {
     currentConversationIdRef.current = currentConversationId;
   }, [currentConversationId]);
+
+  const clearConversationLoadingDelay = useCallback(() => {
+    if (conversationLoadDelayRef.current) {
+      window.clearTimeout(conversationLoadDelayRef.current);
+      conversationLoadDelayRef.current = null;
+    }
+  }, []);
+
+  const stopConversationLoading = useCallback(() => {
+    clearConversationLoadingDelay();
+    setIsConversationLoading(false);
+    setShowConversationLoadingSpinner(false);
+  }, [clearConversationLoadingDelay]);
+
+  useEffect(() => () => clearConversationLoadingDelay(), [clearConversationLoadingDelay]);
 
   // Check for mobile device on mount
   useEffect(() => {
@@ -275,14 +294,37 @@ function App() {
     return () => window.clearInterval(intervalId);
   }, [conversations, loadConversations]);
 
-  const loadConversation = useCallback(async (id) => {
+  const loadConversation = useCallback(async (id, options = {}) => {
+    const { showOverlay = true } = options;
+    const requestId = conversationLoadRequestRef.current + 1;
+    conversationLoadRequestRef.current = requestId;
+    clearConversationLoadingDelay();
+
+    if (showOverlay) {
+      setIsConversationLoading(true);
+      setShowConversationLoadingSpinner(false);
+      conversationLoadDelayRef.current = window.setTimeout(() => {
+        if (conversationLoadRequestRef.current === requestId) {
+          setShowConversationLoadingSpinner(true);
+        }
+      }, 1000);
+    }
+
     try {
       const conv = await api.getConversation(id);
-      setCurrentConversation(conv);
+      if (conversationLoadRequestRef.current === requestId) {
+        setCurrentConversation(conv);
+      }
     } catch (error) {
-      console.error('Failed to load conversation:', error);
+      if (conversationLoadRequestRef.current === requestId) {
+        console.error('Failed to load conversation:', error);
+      }
+    } finally {
+      if (conversationLoadRequestRef.current === requestId) {
+        stopConversationLoading();
+      }
     }
-  }, []);
+  }, [clearConversationLoadingDelay, stopConversationLoading]);
 
   // Load conversation details when selected
   useEffect(() => {
@@ -290,12 +332,17 @@ function App() {
       // If there's an in-progress conversation state for this ID, restore it
       if (inProgressConversationRef.current && 
           inProgressConversationRef.current.id === currentConversationId) {
+        conversationLoadRequestRef.current += 1;
+        stopConversationLoading();
         setCurrentConversation(inProgressConversationRef.current);
       } else {
         loadConversation(currentConversationId);
       }
+    } else {
+      conversationLoadRequestRef.current += 1;
+      stopConversationLoading();
     }
-  }, [currentConversationId, loadConversation]);
+  }, [currentConversationId, loadConversation, stopConversationLoading]);
 
   // Save current conversation ID to localStorage when it changes
   useEffect(() => {
@@ -476,11 +523,18 @@ function App() {
     return message;
   }, []);
 
-  const setConversationJobStatus = useCallback((conversationId, status) => {
+  const setConversationJobStatus = useCallback((conversationId, status, progress = null, stage = null) => {
     setConversations((prev) =>
       prev.map((conversation) =>
         conversation.id === conversationId
-          ? { ...conversation, job_status: status }
+          ? {
+              ...conversation,
+              job_status: status,
+              job_progress: status
+                ? progress ?? conversation.job_progress ?? 3
+                : null,
+              job_stage: status ? stage ?? conversation.job_stage ?? null : null,
+            }
           : conversation
       )
     );
@@ -507,7 +561,12 @@ function App() {
   const applyJobSnapshot = useCallback((conversationId, snapshot) => {
     if (!snapshot) return;
     const isActive = Boolean(snapshot.active);
-    setConversationJobStatus(conversationId, isActive ? snapshot.status : null);
+    setConversationJobStatus(
+      conversationId,
+      isActive ? snapshot.status : null,
+      snapshot.progress,
+      snapshot.stage
+    );
 
     if (currentConversationIdRef.current === conversationId) {
       setIsLoading(isActive);
@@ -540,7 +599,7 @@ function App() {
     }
     loadConversations();
     if (currentConversationIdRef.current === conversationId) {
-      loadConversation(conversationId);
+      loadConversation(conversationId, { showOverlay: false });
       setIsLoading(false);
     }
     notifyJobComplete(
@@ -559,7 +618,7 @@ function App() {
     }
     if (currentConversationIdRef.current === conversationId) {
       if (shouldReload) {
-        loadConversation(conversationId);
+        loadConversation(conversationId, { showOverlay: false });
       }
       setIsLoading(false);
     }
@@ -1027,7 +1086,7 @@ function App() {
             inProgressConversationRef.current = null;
             // Reload the conversation to get the saved state
             if (streamConversationId === currentConversationIdRef.current) {
-              loadConversation(streamConversationId);
+              loadConversation(streamConversationId, { showOverlay: false });
               setIsLoading(false);
             }
             notifyJobComplete(
@@ -1043,7 +1102,7 @@ function App() {
             inProgressConversationRef.current = null;
             if (streamConversationId === currentConversationIdRef.current) {
               if (continueLastAssistantRound) {
-                loadConversation(streamConversationId);
+                loadConversation(streamConversationId, { showOverlay: false });
               }
               setIsLoading(false);
             }
@@ -1066,7 +1125,7 @@ function App() {
       inProgressConversationRef.current = null;
       if (continueLastAssistantRound) {
         if (streamConversationId === currentConversationIdRef.current) {
-          loadConversation(streamConversationId);
+          loadConversation(streamConversationId, { showOverlay: false });
         }
       } else {
         // Remove optimistic messages on error
@@ -1170,6 +1229,8 @@ function App() {
         identityTemplates={identityTemplates}
         onUpdateBaseSystemPrompt={handleUpdateBaseSystemPrompt}
         modelsLoaded={modelsLoaded}
+        isConversationLoading={isConversationLoading}
+        showConversationLoadingSpinner={showConversationLoadingSpinner}
         language={language}
         t={t}
       />

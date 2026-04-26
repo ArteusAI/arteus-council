@@ -7,6 +7,32 @@
   overflow: hidden;
   background: var(--bg-primary);
   transition: background 0.3s ease;
+  position: relative;
+}
+
+.conversation-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(4px) brightness(0.7);
+  -webkit-backdrop-filter: blur(4px) brightness(0.7);
+  pointer-events: all;
+}
+
+.conversation-loading-spinner {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
 }
 
 .model-controls {

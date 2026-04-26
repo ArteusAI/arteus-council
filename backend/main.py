@@ -110,6 +110,8 @@ class ConversationMetadata(BaseModel):
     title: str
     message_count: int
     job_status: str | None = None
+    job_stage: str | None = None
+    job_progress: float | None = None
 
 
 class Conversation(BaseModel):

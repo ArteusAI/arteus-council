@@ -92,6 +92,10 @@
   transition: background 0.2s;
 }
 
+.conversation-item.has-progress {
+  padding-bottom: 10px;
+}
+
 .conversation-item:hover {
   background: var(--bg-hover);
 }
@@ -128,6 +132,22 @@
 .conversation-job-status {
   color: var(--accent-primary);
   font-weight: 600;
+}
+
+.conversation-progress-track {
+  height: 3px;
+  margin-top: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+}
+
+.conversation-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-primary);
+  box-shadow: 0 0 8px var(--accent-primary);
+  transition: width 0.45s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .delete-btn {
