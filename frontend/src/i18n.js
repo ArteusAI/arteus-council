@@ -240,7 +240,7 @@ export const translations = {
     leadsUrlRequired: 'Добавьте ссылку в сообщение',
     processingInterrupted: 'Обработка была прервана',
     retryQuestion: 'Повторить запрос',
-    keepTabOpen: 'Не закрывайте эту вкладку, чтобы работа продолжалась (anti-ddos)',
+    keepTabOpen: '⚠️ Не закрывайте эту вкладку\nОна нужна для продолжения работы и прохождения анти-DDoS-защиты.',
     // Conference mode
     conferenceMode: 'Спасибо, что были с нами!',
     conferenceModeDesc: 'Увидимся на следующей конференции. Следите за обновлениями!',

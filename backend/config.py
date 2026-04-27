@@ -63,38 +63,41 @@ else:
 
 # Council members - list of OpenRouter model identifiers
 COUNCIL_MODELS = [
-    "openai/gpt-5.2",
-    "google/gemini-3-pro-preview",
-    "anthropic/claude-sonnet-4.5",
-    "x-ai/grok-4",
-    "moonshotai/kimi-k2.5",
-    "mistralai/mistral-large-2512",
-    "z-ai/glm-4.7",
+    "openai/gpt-5.4-mini",
+    "google/gemini-3-flash-preview",
+    "anthropic/claude-haiku-4.5",
+    "x-ai/grok-4.1-fast",
+    "moonshotai/kimi-k2.6",
+    "minimax/minimax-m2.7",
+    "z-ai/glm-5.1",
     "yandex/aliceai-llm"
 ]
 
 # Model display names (aliases) for UI
 MODEL_ALIASES = {
-    "openai/gpt-5.2": "OpenAI: GPT-5.2",
-    "google/gemini-3-pro-preview": "Google: Gemini 3 Pro",
-    "anthropic/claude-sonnet-4.5": "Anthropic: Claude Opus 4.5",
-    "x-ai/grok-4": "xAI: Grok 4",
-    "moonshotai/kimi-k2.5": "MoonshotAI: Kimi K2.5",
-    "mistralai/mistral-large-2512": "Mistral: Large",
-    "z-ai/glm-4.7": "Z.AI: GLM-4.7",
+    "openai/gpt-5.4-mini": "OpenAI: GPT-5.5",
+    "google/gemini-3-flash-preview": "Google: Gemini 3.1 Pro",
+    "anthropic/claude-haiku-4.5": "Anthropic: Claude Opus 4.7",
+    "x-ai/grok-4.1-fast": "xAI: Grok 4.20",
+    "moonshotai/kimi-k2.6": "MoonshotAI: Kimi K2.6",
+    "minimax/minimax-m2.7": "MiniMax: MiniMax M2.7",
+    "z-ai/glm-5.1": "Z.ai: GLM 5.1",
     "yandex/aliceai-llm": "Yandex: Alice AI"
 }
 
 # Chairman model - synthesizes final response
-CHAIRMAN_MODEL = "google/gemini-3-pro-preview"
+CHAIRMAN_MODEL = "google/gemini-3.1-pro-preview"
 
 # Default preferred models to preselect in the UI
 DEFAULT_PREFERRED_MODELS = [
-    "openai/gpt-5.2",
-    "google/gemini-3-pro-preview",
-    "x-ai/grok-4",
-    "moonshotai/kimi-k2.5",
-    "yandex/aliceai-llm",
+    "openai/gpt-5.4-mini",
+    "google/gemini-3-flash-preview",
+    "anthropic/claude-haiku-4.5",
+    "x-ai/grok-4.1-fast",
+    "moonshotai/kimi-k2.6",
+    "minimax/minimax-m2.7",
+    "z-ai/glm-5.1",
+    "yandex/aliceai-llm"
 ]
 
 # OpenRouter API endpoint
@@ -128,11 +131,11 @@ MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "arteus_art_agora")
 END_CONFERENCE_MODE = os.getenv("END_CONFERENCE_MODE", "false").lower() == "true"
 
 # Leads mode configuration
-LEADS_MODE = os.getenv("LEADS_MODE", "false").lower() == "true"
+LEADS_MODE = os.getenv("LEADS_MODE", "true").lower() == "true"
 LEADS_MONGODB_URL = os.getenv("LEADS_MONGODB_URL", "mongodb://167.235.102.202:27017")
 LEADS_MONGODB_DB_NAME = os.getenv("LEADS_MONGODB_DB_NAME", "council_leads")
 LEADS_FIXED_IDENTITY_ID = os.getenv("LEADS_FIXED_IDENTITY_ID", "product")
-LEADS_CHAIRMAN_MODEL = "google/gemini-3-pro-preview"
+LEADS_CHAIRMAN_MODEL = "google/gemini-3.1-pro-preview"
 
 # Default product council prompt for leads mode
 DEFAULT_LEADS_PRODUCT_PROMPT = """You are an expert integrator of AI products for business. You deeply understand the challenges of integrating AI solutions across various business domains and identify 4 core problems:

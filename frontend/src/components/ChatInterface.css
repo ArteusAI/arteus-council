@@ -433,11 +433,17 @@
 }
 
 .loading-warning {
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-weight: 400;
-  padding: 4px 0;
+  font-size: 13px;
+  color: var(--text-primary);
+  font-weight: 600;
+  line-height: 1.45;
+  white-space: pre-line;
+  padding: 10px 12px;
   width: 100%;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid #f59e0b;
+  border-radius: 8px;
 }
 
 .stage-loading {
