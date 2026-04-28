@@ -17,6 +17,7 @@ from .council import (
     build_round_payload,
     calculate_second_round_status,
     generate_conversation_title,
+    get_peer_ranking_models,
     select_second_round_finalists,
     stage1_collect_responses,
     stage1_collect_revised_responses,
@@ -500,12 +501,13 @@ class CouncilJob:
 
             self._set_stage("stage2")
             completed_stage2_models: List[str] = []
+            stage2_models = get_peer_ranking_models(models_to_use)
             self.assistant_message["loading"]["stage2"] = True
             self.assistant_message["progress"]["stage2"] = {
                 "completed": [],
-                "total": stage1_models,
+                "total": stage2_models,
             }
-            self.publish({"type": "stage2_start", "data": {"models": stage1_models}})
+            self.publish({"type": "stage2_start", "data": {"models": stage2_models}})
 
             def stage2_callback(model: str, _response: Any) -> None:
                 if model not in completed_stage2_models:
@@ -520,7 +522,7 @@ class CouncilJob:
             stage2_results, label_to_model = await stage2_collect_rankings(
                 enriched_content,
                 stage1_results,
-                models=models_to_use,
+                models=stage2_models,
                 language=language,
                 base_system_prompt=self.base_system_prompt,
                 on_model_complete=stage2_callback,
@@ -617,11 +619,11 @@ class CouncilJob:
                     )
 
                     if round2_stage1_results:
-                        round2_ranking_models = [
+                        round2_ranking_models = get_peer_ranking_models([
                             item["model"] for item in round2_stage1_results
-                        ]
+                        ])
                         round2_label_to_model = build_label_to_model(round2_stage1_results)
-                        if len(round2_ranking_models) >= 2:
+                        if round2_ranking_models:
                             self._set_stage("round2_stage2")
                             completed_round2_stage2_models: List[str] = []
                             self.assistant_message["loading"]["round2Stage2"] = True

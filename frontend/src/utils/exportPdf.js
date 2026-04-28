@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import { getModelDisplayName } from './modelDisplay';
 
 let fontsLoaded = false;
 let fontDataRegular = null;
@@ -437,7 +438,7 @@ function renderResponsesSection(doc, y, title, stageData, pageHeight, marginLeft
       y = 25;
     }
 
-    const modelName = item.model?.split('/')[1] || item.model || 'Model';
+    const modelName = getModelDisplayName(item.model);
     doc.setFontSize(12);
     doc.setTextColor(60, 60, 60);
     if (fonts) doc.setFont('DejaVu', 'bold');
@@ -477,7 +478,7 @@ function renderAggregateSection(doc, y, title, rankings, pageHeight, marginLeft,
       doc.addPage();
       y = 25;
     }
-    const modelName = item.model?.split('/')[1] || item.model || 'Model';
+    const modelName = getModelDisplayName(item.model);
     const avg = typeof item.average_rank === 'number'
       ? item.average_rank.toFixed(2)
       : 'N/A';
@@ -552,7 +553,7 @@ export async function exportCouncilToPdf(userQuestion, assistantMessage, t) {
   doc.setFontSize(22);
   if (fonts) doc.setFont('DejaVu', 'bold');
   doc.setTextColor(30, 58, 138);
-  doc.text('Arteus Council', titleX, y);
+  doc.text(t('appName'), titleX, y);
   y += 12;
 
   // Date
@@ -590,7 +591,7 @@ export async function exportCouncilToPdf(userQuestion, assistantMessage, t) {
     doc.setFontSize(13);
     doc.setTextColor(30, 58, 138);
     if (fonts) doc.setFont('DejaVu', 'bold');
-    const chairmanName = assistantMessage.stage3.model?.split('/')[1] || assistantMessage.stage3.model || 'Chairman';
+    const chairmanName = getModelDisplayName(assistantMessage.stage3.model || 'Chairman');
     doc.text(`${t('stage3Title')} (${chairmanName}):`, marginLeft, y);
     y += 8;
 

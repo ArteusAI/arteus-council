@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import ModelLabel from './ModelLabel';
 import './Stage1.css';
 
 export default function Stage1({ responses, title, t }) {
@@ -20,13 +21,15 @@ export default function Stage1({ responses, title, t }) {
             className={`tab ${activeTab === index ? 'active' : ''}`}
             onClick={() => setActiveTab(index)}
           >
-            {resp.model.split('/')[1] || resp.model}
+            <ModelLabel model={resp.model} />
           </button>
         ))}
       </div>
 
       <div className="tab-content">
-        <div className="model-name">{responses[activeTab].model}</div>
+        <div className="model-name">
+          <ModelLabel model={responses[activeTab].model} />
+        </div>
         <div className="response-text markdown-content">
           <ReactMarkdown>{responses[activeTab].response}</ReactMarkdown>
         </div>

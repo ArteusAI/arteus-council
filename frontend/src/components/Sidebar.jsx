@@ -81,9 +81,9 @@ export default function Sidebar({
           <img
             className="sidebar-logo"
             src={logoSrc}
-            alt="Arteus Council logo"
+            alt={t('appName')}
           />
-          <div className="sidebar-title">Arteus Council</div>
+          <div className="sidebar-title">{t('appName')}</div>
         </div>
         <button className="new-conversation-btn" onClick={onNewConversation}>
           + {t('newConversation')}

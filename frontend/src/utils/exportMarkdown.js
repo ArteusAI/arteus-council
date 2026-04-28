@@ -1,3 +1,5 @@
+import { getModelDisplayName } from './modelDisplay';
+
 function getRound(assistantMessage, roundNumber) {
   return assistantMessage.rounds?.find((round) => round.round === roundNumber) || null;
 }
@@ -13,7 +15,7 @@ function formatResponsesSection(lines, title, stageData) {
   lines.push('');
 
   for (const item of stageData) {
-    const modelName = item.model?.split('/')[1] || item.model || 'Model';
+    const modelName = getModelDisplayName(item.model);
     lines.push(`### ${modelName}`);
     lines.push('');
     lines.push(item.response || '');
@@ -34,7 +36,7 @@ function formatAggregateSection(lines, title, rankings) {
   lines.push('|-------|-----|-------|');
 
   for (const item of rankings) {
-    const modelName = item.model?.split('/')[1] || item.model || 'Model';
+    const modelName = getModelDisplayName(item.model);
     const avg = typeof item.average_rank === 'number'
       ? item.average_rank.toFixed(2)
       : 'N/A';
@@ -62,7 +64,7 @@ export function formatCouncilAsMarkdown(userQuestion, assistantMessage, t) {
     || assistantMessage.metadata?.round2?.aggregate_rankings
     || [];
 
-  lines.push('# Arteus Council');
+  lines.push(`# ${t('appName')}`);
   lines.push('');
   lines.push(`*${now.toLocaleString()}*`);
   lines.push('');
@@ -72,9 +74,7 @@ export function formatCouncilAsMarkdown(userQuestion, assistantMessage, t) {
   lines.push('');
 
   if (assistantMessage.stage3) {
-    const chairmanName = assistantMessage.stage3.model?.split('/')[1]
-      || assistantMessage.stage3.model
-      || 'Chairman';
+    const chairmanName = getModelDisplayName(assistantMessage.stage3.model || 'Chairman');
     lines.push(`## ${t('stage3Title')} (${chairmanName})`);
     lines.push('');
     lines.push(assistantMessage.stage3.response);

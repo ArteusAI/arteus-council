@@ -4,6 +4,7 @@ import ChatInterface from './components/ChatInterface';
 import LoginInterface from './components/LoginInterface';
 import { api } from './api';
 import { translate } from './i18n';
+import { isAgoraModel } from './utils/modelDisplay';
 import './App.css';
 
 const normalizeLang = (code) => {
@@ -239,10 +240,16 @@ function App() {
         if (savedModelsStr) {
           savedModels = JSON.parse(savedModelsStr);
           // Validate saved models are still available
-          savedModels = savedModels.filter((m) => councilList.includes(m));
+          savedModels = savedModels.filter((m) =>
+            councilList.includes(m) && !isAgoraModel(m)
+          );
           if (savedModels.length === 0) savedModels = null;
         }
-        if (savedChairmanStr && councilList.includes(savedChairmanStr)) {
+        if (
+          savedChairmanStr &&
+          councilList.includes(savedChairmanStr) &&
+          !isAgoraModel(savedChairmanStr)
+        ) {
           savedChairman = savedChairmanStr;
         }
       } catch (e) {
@@ -252,8 +259,8 @@ function App() {
       if (savedModels) {
         setSelectedModels(savedModels);
       } else {
-        // Default to selecting all available models
-        setSelectedModels(councilList);
+        // Default to selecting all available non-Agora models.
+        setSelectedModels(councilList.filter((model) => !isAgoraModel(model)));
       }
 
       if (savedChairman) {
@@ -361,7 +368,8 @@ function App() {
   useEffect(() => {
     if (!modelsLoaded) return;
     try {
-      window.sessionStorage.setItem('arteusSelectedModels', JSON.stringify(selectedModels));
+      const persistentModels = selectedModels.filter((model) => !isAgoraModel(model));
+      window.sessionStorage.setItem('arteusSelectedModels', JSON.stringify(persistentModels));
     } catch (e) {
       console.warn('Failed to save selected models', e);
     }
@@ -371,6 +379,10 @@ function App() {
   useEffect(() => {
     if (!modelsLoaded || !chairmanModel) return;
     try {
+      if (isAgoraModel(chairmanModel)) {
+        window.sessionStorage.removeItem('arteusChairmanModel');
+        return;
+      }
       window.sessionStorage.setItem('arteusChairmanModel', chairmanModel);
     } catch (e) {
       console.warn('Failed to save chairman model', e);

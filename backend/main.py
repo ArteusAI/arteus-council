@@ -15,11 +15,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("llm-council")
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any
 
 from . import storage
+from .agora_eval_files import resolve_eval_file
 from .auth import (
     User,
     authenticate_user,
@@ -142,6 +143,19 @@ class CouncilSettingsResponse(BaseModel):
 async def root():
     """Health check endpoint."""
     return {"status": "ok", "service": "LLM Council API"}
+
+
+@router.get("/api/agora-eval-files/{token}/{filename}")
+async def get_agora_eval_file(token: str, filename: str):
+    """Serve temporary anonymized response files for Agora RAG fetching."""
+    file_path = resolve_eval_file(token, filename)
+    if file_path is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(
+        file_path,
+        media_type="text/markdown; charset=utf-8",
+        filename=filename,
+    )
 
 
 @router.post("/api/auth/login", response_model=LoginResponse)

@@ -1,11 +1,15 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import Stage1 from './Stage1';
 import Stage2 from './Stage2';
 import Stage3 from './Stage3';
+import ModelLabel from './ModelLabel';
 import { exportCouncilToPdf } from '../utils/exportPdf';
 import { copyCouncilAsMarkdown } from '../utils/exportMarkdown';
+import { getModelDisplayName } from '../utils/modelDisplay';
 import './ChatInterface.css';
+
+const BOTTOM_SCROLL_THRESHOLD = 80;
 
 function ScrapedLinkCard({ link, t }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -122,8 +126,16 @@ export default function ChatInterface({
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showBasePromptSettings, setShowBasePromptSettings] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState(null);
+  const messagesContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
+  const wasAtBottomRef = useRef(true);
+  const lastConversationIdRef = useRef(undefined);
+  const latestQuestionRef = useRef(null);
+  const latestStage1Ref = useRef(null);
+  const latestStage2Ref = useRef(null);
+  const latestStage2FallbackRef = useRef(null);
+  const latestStage3Ref = useRef(null);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -179,13 +191,42 @@ export default function ChatInterface({
     }
   };
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const isMessagesAtBottom = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return true;
+
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    return distanceFromBottom <= BOTTOM_SCROLL_THRESHOLD;
+  }, []);
+
+  const handleMessagesScroll = useCallback(() => {
+    wasAtBottomRef.current = isMessagesAtBottom();
+  }, [isMessagesAtBottom]);
+
+  const scrollToBottom = useCallback((behavior = 'smooth') => {
+    messagesEndRef.current?.scrollIntoView({ behavior });
+    wasAtBottomRef.current = true;
+  }, []);
+
+  const scrollToAnchor = useCallback((ref, fallbackRef = null) => {
+    const target = ref.current || fallbackRef?.current;
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [conversation]);
+    const conversationId = conversation?.id ?? null;
+    const didSwitchConversation = lastConversationIdRef.current !== conversationId;
+    lastConversationIdRef.current = conversationId;
+
+    if (didSwitchConversation) {
+      scrollToBottom('auto');
+      return;
+    }
+
+    if (wasAtBottomRef.current) {
+      scrollToBottom();
+    }
+  }, [conversation, scrollToBottom]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -204,7 +245,7 @@ export default function ChatInterface({
     }
   };
 
-  const shortName = (model) => model.split('/')[1] || model;
+  const shortName = getModelDisplayName;
   const formatModelList = (models = []) => models.map(shortName).join(', ');
   const getUserQuestionForMessage = (messageIndex) => {
     for (let index = messageIndex - 1; index >= 0; index -= 1) {
@@ -298,6 +339,22 @@ export default function ChatInterface({
   };
 
   const progress = isLoading ? calculateProgress(lastAssistantMessage) : 0;
+  const latestCompletedAssistantIndex = conversation.messages.reduce((latest, msg, index) => {
+    if (msg.role === 'assistant' && msg.stage3 && !msg.loading?.stage3) {
+      return index;
+    }
+    return latest;
+  }, -1);
+  let latestQuestionIndex = -1;
+  if (latestCompletedAssistantIndex > 0) {
+    for (let index = latestCompletedAssistantIndex - 1; index >= 0; index -= 1) {
+      if (conversation.messages[index]?.role === 'user') {
+        latestQuestionIndex = index;
+        break;
+      }
+    }
+  }
+  const hasJumpNav = latestCompletedAssistantIndex >= 0;
 
   return (
     <div className={`chat-interface ${isConversationLoading ? 'conversation-switching' : ''}`}>
@@ -362,7 +419,7 @@ export default function ChatInterface({
                     <span className="model-pill-check" aria-hidden="true">
                       {selected ? '✓' : ''}
                     </span>
-                    <span className="model-pill-name">{shortName(model)}</span>
+                    <ModelLabel model={model} className="model-pill-name" />
                   </label>
                 );
               })}
@@ -454,7 +511,11 @@ export default function ChatInterface({
         ></div>
       </div>
 
-      <div className="messages-container">
+      <div
+        ref={messagesContainerRef}
+        className="messages-container"
+        onScroll={handleMessagesScroll}
+      >
         {conversation.messages.length === 0 ? (
           <div className="empty-state">
             <h2>{t('emptyTitle')}</h2>
@@ -464,7 +525,10 @@ export default function ChatInterface({
           conversation.messages.map((msg, index) => (
             <div key={index} className="message-group">
               {msg.role === 'user' ? (
-                <div className="user-message">
+                <div
+                  ref={index === latestQuestionIndex ? latestQuestionRef : null}
+                  className="user-message chat-section-anchor"
+                >
                   <div className="message-label">{t('youLabel')}</div>
                   <div className="message-content">
                     <div className="markdown-content">
@@ -484,6 +548,9 @@ export default function ChatInterface({
                     const round2Stage2 = round2?.stage2 || [];
                     const round2Metadata = round2?.metadata || msg.metadata?.round2;
                     const finalists = msg.metadata?.round2_finalists || [];
+                    const isLatestCompletedAssistant = index === latestCompletedAssistantIndex;
+                    const hasRound2Stage1 = round2Stage1.length > 0;
+                    const hasRound2Stage2 = round2Stage2.length > 0;
 
                     return (
                       <>
@@ -521,11 +588,10 @@ export default function ChatInterface({
                           <div className="model-progress-pills">
                             {msg.progress.stage1.total.map(modelId => {
                               const isCompleted = msg.progress.stage1.completed.includes(modelId);
-                              const modelName = modelId.split('/')[1] || modelId;
                               return (
                                 <span key={modelId} className={`model-progress-pill ${isCompleted ? 'completed' : 'pending'}`}>
                                   {isCompleted && <span className="check-icon">✓</span>}
-                                  {modelName}
+                                  <ModelLabel model={modelId} />
                                 </span>
                               );
                             })}
@@ -534,7 +600,14 @@ export default function ChatInterface({
                       )}
                     </div>
                   )}
-                  {round1Stage1 && <Stage1 responses={round1Stage1} t={t} />}
+                  {round1Stage1 && (
+                    <div
+                      ref={isLatestCompletedAssistant && !hasRound2Stage1 ? latestStage1Ref : null}
+                      className="chat-section-anchor"
+                    >
+                      <Stage1 responses={round1Stage1} t={t} />
+                    </div>
+                  )}
 
                   {/* Stage 2 */}
                   {msg.loading?.stage2 && (
@@ -551,11 +624,10 @@ export default function ChatInterface({
                           <div className="model-progress-pills">
                             {msg.progress.stage2.total.map(modelId => {
                               const isCompleted = msg.progress.stage2.completed.includes(modelId);
-                              const modelName = modelId.split('/')[1] || modelId;
                               return (
                                 <span key={modelId} className={`model-progress-pill ${isCompleted ? 'completed' : 'pending'}`}>
                                   {isCompleted && <span className="check-icon">✓</span>}
-                                  {modelName}
+                                  <ModelLabel model={modelId} />
                                 </span>
                               );
                             })}
@@ -565,12 +637,18 @@ export default function ChatInterface({
                     </div>
                   )}
                   {round1Stage2 && (
-                    <Stage2
-                      rankings={round1Stage2}
-                      labelToModel={round1Metadata?.label_to_model}
-                      aggregateRankings={round1Metadata?.aggregate_rankings}
-                      t={t}
-                    />
+                    <div
+                      ref={isLatestCompletedAssistant && !hasRound2Stage2 ? latestStage2FallbackRef : null}
+                      className="chat-section-anchor"
+                    >
+                      <Stage2
+                        rankings={round1Stage2}
+                        labelToModel={round1Metadata?.label_to_model}
+                        aggregateRankings={round1Metadata?.aggregate_rankings}
+                        aggregateRankingsRef={isLatestCompletedAssistant && !hasRound2Stage2 ? latestStage2Ref : null}
+                        t={t}
+                      />
+                    </div>
                   )}
 
                   {/* Round 2 */}
@@ -588,11 +666,10 @@ export default function ChatInterface({
                           <div className="model-progress-pills">
                             {msg.progress.round2Stage1.total.map(modelId => {
                               const isCompleted = msg.progress.round2Stage1.completed.includes(modelId);
-                              const modelName = modelId.split('/')[1] || modelId;
                               return (
                                 <span key={modelId} className={`model-progress-pill ${isCompleted ? 'completed' : 'pending'}`}>
                                   {isCompleted && <span className="check-icon">✓</span>}
-                                  {modelName}
+                                  <ModelLabel model={modelId} />
                                 </span>
                               );
                             })}
@@ -609,7 +686,12 @@ export default function ChatInterface({
                           {t('round2Finalists')}: {formatModelList(finalists)}
                         </div>
                       )}
-                      <Stage1 responses={round2Stage1} title={t('round2Stage1Title')} t={t} />
+                      <div
+                        ref={isLatestCompletedAssistant ? latestStage1Ref : null}
+                        className="chat-section-anchor"
+                      >
+                        <Stage1 responses={round2Stage1} title={t('round2Stage1Title')} t={t} />
+                      </div>
                     </>
                   )}
 
@@ -627,11 +709,10 @@ export default function ChatInterface({
                           <div className="model-progress-pills">
                             {msg.progress.round2Stage2.total.map(modelId => {
                               const isCompleted = msg.progress.round2Stage2.completed.includes(modelId);
-                              const modelName = modelId.split('/')[1] || modelId;
                               return (
                                 <span key={modelId} className={`model-progress-pill ${isCompleted ? 'completed' : 'pending'}`}>
                                   {isCompleted && <span className="check-icon">✓</span>}
-                                  {modelName}
+                                  <ModelLabel model={modelId} />
                                 </span>
                               );
                             })}
@@ -642,13 +723,19 @@ export default function ChatInterface({
                   )}
 
                   {round2Stage2.length > 0 && (
-                    <Stage2
-                      rankings={round2Stage2}
-                      labelToModel={round2Metadata?.label_to_model}
-                      aggregateRankings={round2Metadata?.aggregate_rankings}
-                      title={t('round2Stage2Title')}
-                      t={t}
-                    />
+                    <div
+                      ref={isLatestCompletedAssistant ? latestStage2FallbackRef : null}
+                      className="chat-section-anchor"
+                    >
+                      <Stage2
+                        rankings={round2Stage2}
+                        labelToModel={round2Metadata?.label_to_model}
+                        aggregateRankings={round2Metadata?.aggregate_rankings}
+                        aggregateRankingsRef={isLatestCompletedAssistant ? latestStage2Ref : null}
+                        title={t('round2Stage2Title')}
+                        t={t}
+                      />
+                    </div>
                   )}
 
                   {/* Stage 3 */}
@@ -658,7 +745,14 @@ export default function ChatInterface({
                       <span>{t('stage3Loading')}</span>
                     </div>
                   )}
-                  {msg.stage3 && <Stage3 finalResponse={msg.stage3} t={t} />}
+                  {msg.stage3 && (
+                    <div
+                      ref={index === latestCompletedAssistantIndex ? latestStage3Ref : null}
+                      className="chat-section-anchor"
+                    >
+                      <Stage3 finalResponse={msg.stage3} t={t} />
+                    </div>
+                  )}
 
                   {/* Action bar - shown when stage 3 is complete */}
                   {msg.stage3 && !msg.loading?.stage3 && (
@@ -733,6 +827,51 @@ export default function ChatInterface({
 
         <div ref={messagesEndRef} />
       </div>
+
+      {hasJumpNav && (
+        <div className="chat-jump-nav" aria-label={t('stage3Title')}>
+          <button
+            type="button"
+            className="chat-jump-button"
+            onClick={() => scrollToAnchor(latestQuestionRef)}
+            title={t('youLabel')}
+            aria-label={t('youLabel')}
+            data-tooltip={t('youLabel')}
+          >
+            ?
+          </button>
+          <button
+            type="button"
+            className="chat-jump-button"
+            onClick={() => scrollToAnchor(latestStage1Ref)}
+            title={t('stage1Title')}
+            aria-label={t('stage1Title')}
+            data-tooltip={t('stage1Title')}
+          >
+            1
+          </button>
+          <button
+            type="button"
+            className="chat-jump-button"
+            onClick={() => scrollToAnchor(latestStage2Ref, latestStage2FallbackRef)}
+            title={t('aggregateRankings')}
+            aria-label={t('aggregateRankings')}
+            data-tooltip={t('aggregateRankings')}
+          >
+            2
+          </button>
+          <button
+            type="button"
+            className="chat-jump-button"
+            onClick={() => scrollToAnchor(latestStage3Ref)}
+            title={t('stage3Title')}
+            aria-label={t('stage3Title')}
+            data-tooltip={t('stage3Title')}
+          >
+            ✓
+          </button>
+        </div>
+      )}
 
       {conversation.messages.length === 0 && (
         <form className="input-form" onSubmit={handleSubmit}>

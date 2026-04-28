@@ -32,16 +32,22 @@ npm install
 cd ..
 ```
 
-### 2. Configure API Key
+### 2. Configure API Keys
 
 Create a `.env` file in the project root:
 
 ```bash
 OPENROUTER_API_KEY=sk-or-v1-...
+AGORA_API_KEY=...
+COUNCIL_PUBLIC_BASE_URL=https://api.arteus.us/council/
+PEER_EVALUATION_TIMEOUT_SECONDS=300
 CORS_ALLOW_ORIGINS=https://your-frontend.example.com
 ```
 
 Get your API key at [openrouter.ai](https://openrouter.ai/). Make sure to purchase the credits you need, or sign up for automatic top up.
+
+`AGORA_API_KEY` enables the Arteus Agora RAG council model (`agora/rag`). The default Agora endpoint is `https://api.arteus.tech/agora/v1`; override it with `AGORA_API_BASE_URL` if needed. `COUNCIL_PUBLIC_BASE_URL` is the public URL Agora can fetch from when Council serves temporary evaluation files.
+`PEER_EVALUATION_TIMEOUT_SECONDS` controls the timeout for peer-review/evaluation stages; the default is 300 seconds.
 
 ### 3. Configure Ports (Optional)
 
@@ -57,7 +63,9 @@ To serve the UI at a URL postfix like `https://arteus.us/council`, set `BASE_URL
 
 If the API lives on a different origin (e.g. `https://api.arteus.us/council`), set `VITE_API_BASE=https://api.arteus.us/council` so the browser talks to the correct host while keeping the UI at `https://arteus.us/council`.
 
-### 3. Configure Models (Optional)
+For Agora judging, also set `COUNCIL_PUBLIC_BASE_URL` to the externally reachable backend URL with the same subpath, for example `https://api.arteus.us/council/`.
+
+### 5. Configure Models (Optional)
 
 Edit `backend/config.py` to customize the council:
 
@@ -67,10 +75,13 @@ COUNCIL_MODELS = [
     "google/gemini-3-pro-preview",
     "anthropic/claude-sonnet-4.5",
     "x-ai/grok-4",
+    "agora/rag",
 ]
 
 CHAIRMAN_MODEL = "google/gemini-3-pro-preview"
 ```
+
+Use a regular generative model as `CHAIRMAN_MODEL`; Agora RAG is intended for council responses, not final synthesis.
 
 ## Running the Application
 
