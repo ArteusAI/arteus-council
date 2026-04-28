@@ -5,7 +5,7 @@ import logging
 import math
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .agora_eval_files import (
     build_eval_file_url,
@@ -18,6 +18,7 @@ from .llm import query_model, query_models_parallel
 logger = logging.getLogger("llm-council.council")
 
 FINAL_SYNTHESIS_MAX_ATTEMPTS = 3
+PEER_EVALUATION_MAX_ATTEMPTS = 3
 
 
 LANGUAGE_NAMES = {
@@ -302,10 +303,13 @@ The participant responses are available at the URLs below. They are included so 
 
 {file_list}
 
-Use the fetched resource context for these files as the source of answer text. It may appear in blocks such as <resource_fetcher_results>, <resource_fetcher_result ...>, <resource_fetcher_summary>, <resource_fetcher_sources>, or <resource ...>. Match response labels by the file list above and by filenames such as response_A.md. Do not try to call a tool yourself.
+Use the fetched resource context for these files as the source of answer text. It may appear in blocks such as <resource_fetcher_results>, <resource_fetcher_result ...>, <resource_fetcher_summary>, <resource_fetcher_sources>, or <resource ...>. Match response labels by the file list above, filenames such as response_A.md, and labels inside fetched file bodies such as "# Response A". Do not try to call a tool yourself.
 
-If the fetched resource context is missing or does not contain the actual answer text for every response file, do not ask the user to send files and do not invent scores. Return exactly:
-AGORA EVALUATION UNAVAILABLE: missing fetched response resources
+Important resource handling rules:
+- If <resource_fetcher_result> blocks are present, treat their contents as the actual fetched response files and evaluate them.
+- A response label can appear inside the fetched file body, for example "# Response A", even if the fetched source filename is random.
+- Do not return an unavailable message when fetched blocks contain "# Response ..." and "## Answer" sections.
+- Return exactly "AGORA EVALUATION UNAVAILABLE: missing fetched response resources" only if no fetched block or summary contains any response answer text.
 
 Evaluation criteria:
 - Correctness and directness: prefer answers that address the user's question accurately and completely.
@@ -406,15 +410,70 @@ def calculate_second_round_status(
     return "completed"
 
 
+def is_valid_peer_evaluation_response(
+    model: str,
+    response: Optional[Dict[str, Any]],
+    expected_labels: List[str],
+) -> bool:
+    """Return whether a peer evaluator produced a complete parseable ranking."""
+    if response is None:
+        return False
+
+    full_text = str(response.get("content") or "").strip()
+    if not full_text:
+        return False
+
+    if is_agora_model(model):
+        return is_valid_agora_evaluation(full_text, expected_labels)
+
+    if "FINAL RANKING:" not in full_text:
+        return False
+
+    parsed = parse_ranking_from_text(full_text)
+    expected = set(expected_labels)
+    return len(parsed) == len(expected_labels) and set(parsed) == expected
+
+
 async def query_model_messages_parallel(
     model_messages: Dict[str, List[Dict[str, str]]],
     on_model_complete: Optional[Any] = None,
     timeout: float = 300.0,
+    validate_response: Optional[Callable[[str, Optional[Dict[str, Any]]], bool]] = None,
+    max_attempts: int = 1,
 ) -> Dict[str, Optional[Dict[str, Any]]]:
     """Query different models in parallel with model-specific messages."""
 
     async def _query_and_callback(model: str, messages: List[Dict[str, str]]):
-        response = await query_model(model, messages, timeout=timeout)
+        attempts = max(1, max_attempts)
+        response = None
+        for attempt in range(1, attempts + 1):
+            response = await query_model(model, messages, timeout=timeout)
+            if validate_response is None:
+                is_valid = response is not None
+            else:
+                try:
+                    is_valid = validate_response(model, response)
+                except Exception as exc:
+                    logger.exception("[%s] Response validator failed: %s", model, exc)
+                    is_valid = False
+
+            if is_valid:
+                break
+
+            if attempt < attempts:
+                logger.warning(
+                    "[%s] Invalid or empty model response on attempt %s/%s; retrying",
+                    model,
+                    attempt,
+                    attempts,
+                )
+            else:
+                logger.error(
+                    "[%s] Invalid or empty model response after %s attempts",
+                    model,
+                    attempts,
+                )
+
         if on_model_complete:
             if asyncio.iscoroutinefunction(on_model_complete):
                 await on_model_complete(model, response)
@@ -649,24 +708,30 @@ async def stage2_collect_rankings(
             model_messages[model] = agora_messages
 
     try:
+        expected_labels = list(label_to_model.keys())
         responses = await query_model_messages_parallel(
             model_messages,
             on_model_complete=on_model_complete,
             timeout=PEER_EVALUATION_TIMEOUT_SECONDS,
+            validate_response=lambda model, response: is_valid_peer_evaluation_response(
+                model,
+                response,
+                expected_labels,
+            ),
+            max_attempts=PEER_EVALUATION_MAX_ATTEMPTS,
         )
     finally:
         cleanup_agora_evaluation_files(agora_token, agora_tmp_dir)
 
     stage2_results = []
-    expected_labels = list(label_to_model.keys())
     for model, response in responses.items():
         if response is not None:
             full_text = response.get("content", "")
             parsed = parse_ranking_from_text(full_text)
             parsed_scores = parse_agora_scores_from_text(full_text)
-            if is_agora_model(model) and not is_valid_agora_evaluation(full_text, expected_labels):
+            if not is_valid_peer_evaluation_response(model, response, expected_labels):
                 logger.error(
-                    "[%s] Invalid Agora peer evaluation; skipping. expected_labels=%s parsed_ranking=%s parsed_scores=%s content_preview=%r",
+                    "[%s] Invalid peer evaluation; skipping. expected_labels=%s parsed_ranking=%s parsed_scores=%s content_preview=%r",
                     model,
                     expected_labels,
                     parsed,

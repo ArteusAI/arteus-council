@@ -50,6 +50,7 @@ from backend.council import (
     is_valid_agora_evaluation,
     parse_agora_scores_from_text,
     parse_ranking_from_text,
+    query_model_messages_parallel,
     run_full_council,
     select_second_round_finalists,
     stage1_collect_responses,
@@ -129,9 +130,17 @@ class CouncilSecondRoundTests(unittest.IsolatedAsyncioTestCase):
     async def test_stage2_sends_agora_file_urls_for_peer_ranking(self, mock_query_model_messages_parallel):
         observed_tmp_dirs = []
 
-        async def fake_query(model_messages, on_model_complete=None, timeout=None):
+        async def fake_query(
+            model_messages,
+            on_model_complete=None,
+            timeout=None,
+            validate_response=None,
+            max_attempts=1,
+        ):
             self.assertEqual(set(model_messages), {"agora/rag", "openai/example"})
             self.assertEqual(timeout, 300.0)
+            self.assertTrue(callable(validate_response))
+            self.assertEqual(max_attempts, 3)
 
             standard_prompt = model_messages["openai/example"][0]["content"]
             self.assertIn("RAG-backed answer", standard_prompt)
@@ -146,8 +155,10 @@ class CouncilSecondRoundTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("<resource_fetcher_sources>", agora_prompt)
             self.assertIn("<resource ...>", agora_prompt)
             self.assertIn("Do not try to call a tool yourself", agora_prompt)
+            self.assertIn('labels inside fetched file bodies such as "# Response A"', agora_prompt)
+            self.assertIn("treat their contents as the actual fetched response files", agora_prompt)
+            self.assertIn("Do not return an unavailable message", agora_prompt)
             self.assertIn("AGORA EVALUATION UNAVAILABLE: missing fetched response resources", agora_prompt)
-            self.assertIn("do not ask the user to send files", agora_prompt)
             self.assertIn("Context alignment:", agora_prompt)
             self.assertIn("## RAG context sections", agora_prompt)
             self.assertIn("Brevity is not a quality signal by itself", agora_prompt)
@@ -269,11 +280,100 @@ class CouncilSecondRoundTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([result["model"] for result in stage2_results], ["openai/example"])
 
+    @patch("backend.council.query_model", new_callable=AsyncMock)
+    async def test_query_model_messages_parallel_retries_until_validator_accepts(self, mock_query_model):
+        completed = []
+        mock_query_model.side_effect = [
+            {"content": ""},
+            {"content": "accepted"},
+        ]
+
+        responses = await query_model_messages_parallel(
+            {"judge-model": [{"role": "user", "content": "Rank responses"}]},
+            on_model_complete=lambda model, response: completed.append((model, response)),
+            timeout=12.0,
+            validate_response=lambda _model, response: bool((response or {}).get("content")),
+            max_attempts=3,
+        )
+
+        self.assertEqual(mock_query_model.await_count, 2)
+        self.assertEqual(responses["judge-model"]["content"], "accepted")
+        self.assertEqual(len(completed), 1)
+        self.assertEqual(completed[0][0], "judge-model")
+        self.assertEqual(completed[0][1]["content"], "accepted")
+
+    @patch("backend.council.query_model", new_callable=AsyncMock)
+    async def test_stage2_retries_unparseable_peer_evaluation(self, mock_query_model):
+        mock_query_model.side_effect = [
+            {"content": "Response A is good. Response B is weaker."},
+            {"content": ranking_text(["Response A", "Response B"])},
+        ]
+        stage1_results = [
+            {"model": "model-a", "response": "Answer A"},
+            {"model": "model-b", "response": "Answer B"},
+        ]
+
+        stage2_results, _ = await stage2_collect_rankings(
+            "Question",
+            stage1_results,
+            models=["judge-model"],
+        )
+
+        self.assertEqual(mock_query_model.await_count, 2)
+        self.assertEqual(len(stage2_results), 1)
+        self.assertEqual(stage2_results[0]["parsed_ranking"], ["Response A", "Response B"])
+
+    @patch("backend.council.query_model", new_callable=AsyncMock)
+    async def test_stage2_retries_invalid_agora_evaluation(self, mock_query_model):
+        mock_query_model.side_effect = [
+            {"content": "AGORA EVALUATION UNAVAILABLE: missing fetched response resources"},
+            {
+                "content": (
+                    "AGORA EVALUATION:\n"
+                    "Response A | score: 5 | rank: 2 | note: ok but thinner\n"
+                    "Response B | score: 8 | rank: 1 | note: stronger\n\n"
+                    "FINAL RANKING:\n"
+                    "1. Response B\n"
+                    "2. Response A"
+                )
+            },
+        ]
+        stage1_results = [
+            {"model": "model-a", "response": "Answer A"},
+            {"model": "model-b", "response": "Answer B"},
+        ]
+
+        stage2_results, _ = await stage2_collect_rankings(
+            "Question",
+            stage1_results,
+            models=["agora/rag"],
+        )
+
+        self.assertEqual(mock_query_model.await_count, 2)
+        self.assertEqual(len(stage2_results), 1)
+        self.assertEqual(stage2_results[0]["model"], "agora/rag")
+        self.assertEqual(stage2_results[0]["parsed_ranking"], ["Response B", "Response A"])
+        self.assertEqual(
+            stage2_results[0]["parsed_scores"],
+            [
+                {"label": "Response A", "score": 5, "rank": 2, "note": "ok but thinner"},
+                {"label": "Response B", "score": 8, "rank": 1, "note": "stronger"},
+            ],
+        )
+
     @patch("backend.council.query_model_messages_parallel", new_callable=AsyncMock)
     async def test_stage2_does_not_send_empty_response_files_to_agora(self, mock_query_model_messages_parallel):
-        async def fake_query(model_messages, on_model_complete=None, timeout=None):
+        async def fake_query(
+            model_messages,
+            on_model_complete=None,
+            timeout=None,
+            validate_response=None,
+            max_attempts=1,
+        ):
             self.assertEqual(set(model_messages), {"openai/example"})
             self.assertNotIn("agora/rag", model_messages)
+            self.assertTrue(callable(validate_response))
+            self.assertEqual(max_attempts, 3)
             return {
                 "openai/example": {"content": ranking_text(["Response B", "Response A"])},
             }
