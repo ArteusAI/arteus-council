@@ -1401,6 +1401,12 @@ function App() {
     }
   }
 
+  const leadsAnalysisBusy =
+    leadsMode &&
+    (isLoading ||
+      Boolean(activeStreamConversationRef.current) ||
+      conversations.some((c) => Boolean(c.job_status)));
+
   return (
     <div className={`app ${theme} ${sidebarOpen ? 'sidebar-open' : ''}`}>
       <button 
@@ -1436,6 +1442,7 @@ function App() {
         onLogout={handleLogout}
         leadsMode={leadsMode}
         disableRussian={disableRussian}
+        leadsAnalysisBusy={leadsAnalysisBusy}
       />
       <ChatInterface
         conversation={currentConversation}
@@ -1460,6 +1467,7 @@ function App() {
         t={t}
         hideIdentitySelector={leadsMode}
         leadsMode={leadsMode}
+        leadsAnalysisBusy={leadsAnalysisBusy}
         modelAliases={modelAliases}
       />
     </div>

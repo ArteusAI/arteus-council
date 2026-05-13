@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import './Sidebar.css';
 import DemosceneEasterEgg from './DemosceneEasterEgg';
 import PersonalizationSettings from './PersonalizationSettings';
@@ -20,11 +20,34 @@ export default function Sidebar({
   onLogout,
   leadsMode = false,
   disableRussian = false,
+  leadsAnalysisBusy = false,
 }) {
   const [showEasterEgg, setShowEasterEgg] = useState(false);
   const [showPersonalization, setShowPersonalization] = useState(false);
+  const [showBusyHint, setShowBusyHint] = useState(false);
   const clickCountRef = useRef(0);
   const clickTimerRef = useRef(null);
+  const busyHintTimerRef = useRef(null);
+
+  useEffect(() => {
+    if (!leadsAnalysisBusy && showBusyHint) {
+      setShowBusyHint(false);
+    }
+  }, [leadsAnalysisBusy, showBusyHint]);
+
+  useEffect(() => () => {
+    if (busyHintTimerRef.current) clearTimeout(busyHintTimerRef.current);
+  }, []);
+
+  const handleNewConversationClick = () => {
+    if (leadsAnalysisBusy) {
+      setShowBusyHint(true);
+      if (busyHintTimerRef.current) clearTimeout(busyHintTimerRef.current);
+      busyHintTimerRef.current = setTimeout(() => setShowBusyHint(false), 5000);
+      return;
+    }
+    onNewConversation();
+  };
 
   const handleLogoClick = () => {
     clickCountRef.current += 1;
@@ -88,9 +111,22 @@ export default function Sidebar({
           />
           <div className="sidebar-title">{t('appName')}</div>
         </div>
-        <button className="new-conversation-btn" onClick={onNewConversation}>
-          + {t('newConversation')}
-        </button>
+        <div className="new-conversation-wrapper">
+          <button
+            className={`new-conversation-btn${leadsAnalysisBusy ? ' new-conversation-btn-busy' : ''}`}
+            onClick={handleNewConversationClick}
+            aria-disabled={leadsAnalysisBusy}
+            title={leadsAnalysisBusy ? t('leadsAnalysisBusy') : undefined}
+          >
+            + {t('newConversation')}
+          </button>
+          {showBusyHint && leadsAnalysisBusy && (
+            <div className="new-conversation-busy-hint" role="status">
+              {t('leadsAnalysisBusyHint')
+                || 'An analysis is currently running. Close the current chat to stop it and start a new one.'}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="conversation-list">
@@ -110,7 +146,7 @@ export default function Sidebar({
                   key={conv.id}
                   className={`conversation-item ${
                     conv.id === currentConversationId ? 'active' : ''
-                  } ${hasActiveJob ? 'has-progress' : ''}`}
+                  } ${hasActiveJob && !leadsMode ? 'has-progress' : ''}`}
                   onClick={() => onSelectConversation(conv.id)}
                 >
                   <div className="conversation-content">
@@ -126,7 +162,7 @@ export default function Sidebar({
                         `${conv.message_count} messages`
                       )}
                     </div>
-                    {hasActiveJob && (
+                    {hasActiveJob && !leadsMode && (
                       <div className="conversation-progress-track" aria-hidden="true">
                         <div
                           className="conversation-progress-fill"
@@ -165,36 +201,60 @@ export default function Sidebar({
             </button>
           </div>
         )}
-        <button
-          className="personalization-btn"
-          onClick={() => setShowPersonalization(true)}
-          title={t('personalization')}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
-            <circle cx="12" cy="12" r="3"/>
-          </svg>
-          {t('personalization')}
-        </button>
-        <div className="footer-controls">
-          <button 
-            className="theme-toggle-btn" 
-            onClick={onToggleTheme}
-            title={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
-          >
-            {theme === 'light' ? '🌙' : '☀️'}
-          </button>
-          
-          <select 
-            className="lang-select" 
-            value={language} 
-            onChange={(e) => onLanguageChange(e.target.value)}
-          >
-            <option value="en">EN</option>
-            {!disableRussian && <option value="ru">RU</option>}
-            <option value="el">EL</option>
-          </select>
-        </div>
+        {leadsMode ? (
+          <div className="footer-controls leads-personalization-row">
+            <button
+              className="personalization-btn personalization-btn-inline"
+              onClick={() => setShowPersonalization(true)}
+              title={t('personalization')}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+              {t('personalization')}
+            </button>
+            <button
+              className="theme-toggle-btn"
+              onClick={onToggleTheme}
+              title={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
+            >
+              {theme === 'light' ? '🌙' : '☀️'}
+            </button>
+          </div>
+        ) : (
+          <>
+            <button
+              className="personalization-btn"
+              onClick={() => setShowPersonalization(true)}
+              title={t('personalization')}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+              {t('personalization')}
+            </button>
+            <div className="footer-controls">
+              <button
+                className="theme-toggle-btn"
+                onClick={onToggleTheme}
+                title={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
+              >
+                {theme === 'light' ? '🌙' : '☀️'}
+              </button>
+              <select
+                className="lang-select"
+                value={language}
+                onChange={(e) => onLanguageChange(e.target.value)}
+              >
+                <option value="en">EN</option>
+                {!disableRussian && <option value="ru">RU</option>}
+                <option value="el">EL</option>
+              </select>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

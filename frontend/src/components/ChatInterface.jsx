@@ -127,6 +127,7 @@ export default function ChatInterface({
   t,
   hideIdentitySelector = false,
   leadsMode = false,
+  leadsAnalysisBusy = false,
   modelAliases = {},
 }) {
   const [input, setInput] = useState('');
@@ -243,11 +244,10 @@ export default function ChatInterface({
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    // In leads mode, require URL in message
     if (leadsMode && !hasUrl) return;
+    if (leadsAnalysisBusy) return;
     if (input.trim() && !isLoading && selectedModels.length > 0 && modelsLoaded) {
       onSendMessage(input);
-      // Draft is removed by the useEffect that watches input when it's set to empty
       setInput('');
     }
   };
@@ -919,7 +919,7 @@ export default function ChatInterface({
       )}
 
       {conversation.messages.length === 0 && (
-        <div className="input-form-container">
+        <div className={`input-form-container${leadsMode ? ' input-form-container-leads' : ''}`}>
           {leadsMode && (
             <div className="leads-url-prompt">
               {t('leadsUrlPromptTitle') || 'Provide a URL of your website to analyze your business profile'}
@@ -938,7 +938,7 @@ export default function ChatInterface({
                 value={input}
                 onChange={(e) => setInput(e.target.value.replace(/\s+/g, ''))}
                 onKeyDown={handleKeyDown}
-                disabled={isLoading || selectedModels.length === 0 || !modelsLoaded}
+                disabled={isLoading || leadsAnalysisBusy || selectedModels.length === 0 || !modelsLoaded}
               />
             ) : (
               <textarea
@@ -972,6 +972,7 @@ export default function ChatInterface({
                 disabled={
                   !input.trim() ||
                   isLoading ||
+                  leadsAnalysisBusy ||
                   selectedModels.length === 0 ||
                   !modelsLoaded ||
                   (leadsMode && !hasUrl)
@@ -984,6 +985,11 @@ export default function ChatInterface({
           {leadsUrlRequired && (
             <div className="leads-url-note">
               {t('leadsUrlRequired') || 'Please include a URL in your message'}
+            </div>
+          )}
+          {leadsMode && leadsAnalysisBusy && !isLoading && (
+            <div className="leads-url-note">
+              {t('leadsAnalysisBusy') || 'Analysis is already running. Please wait until it finishes.'}
             </div>
           )}
         </div>

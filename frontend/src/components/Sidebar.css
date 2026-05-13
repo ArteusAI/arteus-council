@@ -51,6 +51,10 @@
   transition: color 0.3s ease;
 }
 
+.new-conversation-wrapper {
+  position: relative;
+}
+
 .new-conversation-btn {
   width: 100%;
   padding: 10px;
@@ -60,13 +64,52 @@
   color: #fff;
   cursor: pointer;
   font-size: 14px;
-  transition: background 0.2s;
+  transition: background 0.2s, opacity 0.2s;
   font-weight: 500;
 }
 
 .new-conversation-btn:hover {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
+}
+
+.new-conversation-btn-busy,
+.new-conversation-btn-busy:hover {
+  background: var(--bg-tertiary, #c0c0c0);
+  border-color: var(--border-primary);
+  color: var(--text-tertiary, #888);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.new-conversation-busy-hint {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-left: 3px solid var(--accent-primary);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.new-conversation-busy-hint::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 16px;
+  width: 10px;
+  height: 10px;
+  background: var(--bg-primary);
+  border-left: 1px solid var(--border-primary);
+  border-top: 1px solid var(--border-primary);
+  transform: rotate(45deg);
 }
 
 .conversation-list {
@@ -320,6 +363,15 @@
 
 .personalization-btn svg {
   flex-shrink: 0;
+}
+
+.leads-personalization-row {
+  justify-content: flex-start;
+}
+
+.personalization-btn-inline {
+  flex: 1;
+  margin-bottom: 0;
 }
 
 .user-info {
