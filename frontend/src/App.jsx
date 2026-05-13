@@ -6,13 +6,13 @@ import LeadsLoginInterface from './components/LeadsLoginInterface';
 import ConferenceModeScreen from './components/ConferenceModeScreen';
 import { api } from './api';
 import { translate } from './i18n';
-import { isAgoraModel } from './utils/modelDisplay';
+import { isAgoraModel, setModelAliases as setGlobalModelAliases } from './utils/modelDisplay';
 import './App.css';
 
-const normalizeLang = (code) => {
+const normalizeLang = (code, { disableRussian = false } = {}) => {
   if (!code) return 'en';
   const lower = code.toLowerCase();
-  if (lower.startsWith('ru')) return 'ru';
+  if (lower.startsWith('ru')) return disableRussian ? 'en' : 'ru';
   if (lower.startsWith('el') || lower.startsWith('gr')) return 'el';
   return 'en';
 };
@@ -22,6 +22,7 @@ function App() {
   const [conferenceMode, setConferenceMode] = useState(false);
   const [leadsMode, setLeadsMode] = useState(false);
   const [fixedIdentityId, setFixedIdentityId] = useState(null);
+  const [disableRussian, setDisableRussian] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [user, setUser] = useState(null);
   const [leadUser, setLeadUser] = useState(null);
@@ -71,10 +72,22 @@ function App() {
   const conversationLoadRequestRef = useRef(0);
   const conversationLoadDelayRef = useRef(null);
   const currentConversationIdRef = useRef(currentConversationId);
+  const leadsModeRef = useRef(false);
+  const leadUserRef = useRef(null);
 
   useEffect(() => {
     currentConversationIdRef.current = currentConversationId;
   }, [currentConversationId]);
+
+  useEffect(() => {
+    console.log('[leadsMode] state changed to:', leadsMode);
+    leadsModeRef.current = leadsMode;
+  }, [leadsMode]);
+
+  useEffect(() => {
+    console.log('[leadUser] state changed to:', leadUser ? { session_id: leadUser.session_id, email: leadUser.email } : null);
+    leadUserRef.current = leadUser;
+  }, [leadUser]);
 
   const clearConversationLoadingDelay = useCallback(() => {
     if (conversationLoadDelayRef.current) {
@@ -143,22 +156,27 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!configLoaded) return;
     try {
       const savedLang = localStorage.getItem('arteusLang');
       if (savedLang) {
-        setLanguage(normalizeLang(savedLang));
+        const normalized = normalizeLang(savedLang, { disableRussian });
+        setLanguage(normalized);
+        if (normalized !== savedLang) {
+          localStorage.setItem('arteusLang', normalized);
+        }
         return;
       }
-      // Default to RU if no saved language
-      setLanguage('ru');
-      localStorage.setItem('arteusLang', 'ru');
+      const defaultLang = disableRussian ? 'en' : 'ru';
+      setLanguage(defaultLang);
+      localStorage.setItem('arteusLang', defaultLang);
     } catch (e) {
       console.warn('Language load failed', e);
     }
-  }, []);
+  }, [configLoaded, disableRussian]);
 
   const setLanguageSafe = (code) => {
-    const normalized = normalizeLang(code);
+    const normalized = normalizeLang(code, { disableRussian });
     setLanguage(normalized);
     try {
       localStorage.setItem('arteusLang', normalized);
@@ -175,9 +193,11 @@ function App() {
       // First, load config to determine mode
       try {
         const config = await api.getConfig();
+        console.log('[config] loaded:', config);
         setConferenceMode(config.END_CONFERENCE_MODE || false);
         setLeadsMode(config.leads_mode || false);
         setFixedIdentityId(config.fixed_identity_id || null);
+        setDisableRussian(Boolean(config.disable_russian_language));
         
         // Log conference mode activation
         if (config.END_CONFERENCE_MODE) {
@@ -270,9 +290,12 @@ function App() {
 
   const loadConversations = useCallback(async () => {
     try {
-      const convs = leadsMode 
+      const isLeads = Boolean(leadsModeRef.current || leadUserRef.current);
+      console.log('[loadConversations] isLeads=', isLeads, 'leadsModeRef=', leadsModeRef.current, 'leadUser=', !!leadUserRef.current);
+      const convs = isLeads
         ? await api.listLeadsConversations()
         : await api.listConversations();
+      console.log('[loadConversations] received', convs.length, 'conversations');
       setConversations(convs);
 
       // Validate currentConversationId if it exists
@@ -284,7 +307,7 @@ function App() {
       // Auto-select or create conversation
       if (convs.length === 0) {
         // No conversations - create first one automatically
-        const newConv = leadsMode
+        const newConv = isLeads
           ? await api.createLeadsConversation()
           : await api.createConversation();
         setConversations([{ id: newConv.id, created_at: newConv.created_at, message_count: 0 }]);
@@ -293,9 +316,11 @@ function App() {
         // Has conversations but none selected - select the most recent (first in list)
         setCurrentConversationId(convs[0].id);
       } else if (convs.find(c => c.id === currentConversationId)) {
-        // currentConversationId is already set and valid - load it explicitly
-        // (useEffect won't trigger since the value didn't change)
-        loadConversation(currentConversationId);
+        // Reload only if no active stream — otherwise the in-memory state
+        // (with stage1/2/3 progress) would be overwritten by a partial server snapshot.
+        if (activeStreamConversationRef.current !== currentConversationId) {
+          loadConversation(currentConversationId);
+        }
       }
     } catch (error) {
       console.error('Failed to load conversations:', error);
@@ -337,6 +362,7 @@ function App() {
       setAvailableModels(councilList);
       setIdentityTemplates(templates);
       setModelAliases(aliases);
+      setGlobalModelAliases(aliases);
       
       let promptText = settings.base_system_prompt || '';
       const promptId = settings.base_system_prompt_id || 'custom';
@@ -431,9 +457,21 @@ function App() {
     }
 
     try {
-      const conv = leadsMode
-        ? await api.getLeadsConversation(id)
-        : await api.getConversation(id);
+      const useLeads = Boolean(leadsModeRef.current || leadUserRef.current);
+      console.log('[loadConversation] id=', id, 'useLeads=', useLeads, 'leadsModeRef=', leadsModeRef.current, 'leadUser=', !!leadUserRef.current);
+      let conv;
+      try {
+        conv = useLeads
+          ? await api.getLeadsConversation(id)
+          : await api.getConversation(id);
+        console.log('[loadConversation] OK primary endpoint, messages=', conv?.messages?.length);
+      } catch (primaryError) {
+        console.warn('[loadConversation] primary failed, trying fallback. Error:', primaryError);
+        conv = useLeads
+          ? await api.getConversation(id)
+          : await api.getLeadsConversation(id);
+        console.log('[loadConversation] OK fallback endpoint, messages=', conv?.messages?.length);
+      }
       if (conversationLoadRequestRef.current === requestId) {
         setCurrentConversation(conv);
       }
@@ -446,7 +484,7 @@ function App() {
         stopConversationLoading();
       }
     }
-  }, [clearConversationLoadingDelay, stopConversationLoading]);
+  }, [clearConversationLoadingDelay, stopConversationLoading, leadsMode]);
 
   // Load conversation details when selected
   useEffect(() => {
@@ -828,11 +866,12 @@ function App() {
   }, [applyJobSnapshot, connectToJobStream]);
 
   useEffect(() => {
+    if (leadsMode) return;
     if (!currentConversationId || currentConversation?.id !== currentConversationId) {
       return;
     }
     refreshConversationJob(currentConversationId);
-  }, [currentConversation?.id, currentConversationId, refreshConversationJob]);
+  }, [currentConversation?.id, currentConversationId, refreshConversationJob, leadsMode]);
 
   const handleSendMessage = async (content, options = {}) => {
     const { continueLastAssistantRound = false } = options;
@@ -954,6 +993,7 @@ function App() {
         : ((baseSystemPromptId === 'custom' && !baseSystemPrompt.trim()) ? null : baseSystemPrompt);
 
       // Send message with streaming (use appropriate API based on mode)
+      console.log('[handleSendMessage] leadsMode=', leadsMode, 'leadUser=', !!leadUser, '→ using', leadsMode ? 'LEADS stream' : 'NORMAL stream');
       const streamMethod = leadsMode ? api.sendLeadsMessageStream : api.sendMessageStream;
       const streamArgs = leadsMode
         ? [streamConversationId, content, selectedModels, chairmanModel, language]
@@ -1218,12 +1258,18 @@ function App() {
             break;
 
           case 'title_complete':
-            // Reload conversations to get updated title
-            loadConversations();
+            // Update only the title in the list to avoid overwriting in-memory stream state.
+            if (event.data?.title) {
+              setConversations((prev) =>
+                prev.map((c) =>
+                  c.id === streamConversationId ? { ...c, title: event.data.title } : c
+                )
+              );
+            }
             break;
 
           case 'complete':
-            // Stream complete
+            console.log('[stream] complete event for', streamConversationId, 'leadsModeRef=', leadsModeRef.current, 'leadUser=', !!leadUserRef.current);
             setConversationJobStatus(streamConversationId, null);
             loadConversations();
             activeStreamConversationRef.current = null;
@@ -1389,6 +1435,7 @@ function App() {
         user={leadsMode ? (leadUser ? { email: leadUser.email || leadUser.telegram } : null) : user}
         onLogout={handleLogout}
         leadsMode={leadsMode}
+        disableRussian={disableRussian}
       />
       <ChatInterface
         conversation={currentConversation}
@@ -1400,7 +1447,7 @@ function App() {
         onToggleModel={toggleModelSelection}
         chairmanModel={chairmanModel}
         onSelectChairman={setChairmanModel}
-        enableSecondRound={enableSecondRound}
+        enableSecondRound={leadsMode ? false : enableSecondRound}
         onSetSecondRound={setEnableSecondRound}
         baseSystemPrompt={baseSystemPrompt}
         baseSystemPromptId={baseSystemPromptId}

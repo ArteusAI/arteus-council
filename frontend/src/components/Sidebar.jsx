@@ -19,6 +19,7 @@ export default function Sidebar({
   user,
   onLogout,
   leadsMode = false,
+  disableRussian = false,
 }) {
   const [showEasterEgg, setShowEasterEgg] = useState(false);
   const [showPersonalization, setShowPersonalization] = useState(false);
@@ -190,7 +191,7 @@ export default function Sidebar({
             onChange={(e) => onLanguageChange(e.target.value)}
           >
             <option value="en">EN</option>
-            <option value="ru">RU</option>
+            {!disableRussian && <option value="ru">RU</option>}
             <option value="el">EL</option>
           </select>
         </div>

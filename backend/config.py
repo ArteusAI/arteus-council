@@ -98,7 +98,7 @@ COUNCIL_MODELS = [
     "moonshotai/kimi-k2.6",
     "minimax/minimax-m2.7",
     "z-ai/glm-5.1",
-    "yandex/aliceai-llm"
+    "deepseek/deepseek-v4-flash",
 ]
 
 # Model display names (aliases) for UI
@@ -110,7 +110,7 @@ MODEL_ALIASES = {
     "moonshotai/kimi-k2.6": "MoonshotAI: Kimi K2.6",
     "minimax/minimax-m2.7": "MiniMax: MiniMax M2.7",
     "z-ai/glm-5.1": "Z.ai: GLM 5.1",
-    "yandex/aliceai-llm": "Yandex: Alice AI"
+    "deepseek/deepseek-v4-flash": "DeepSeek: DeepSeek V4 Pro",
 }
 
 # Chairman model - synthesizes final response
@@ -125,7 +125,7 @@ DEFAULT_PREFERRED_MODELS = [
     "moonshotai/kimi-k2.6",
     "minimax/minimax-m2.7",
     "z-ai/glm-5.1",
-    "yandex/aliceai-llm"
+    "deepseek/deepseek-v4-flash",
 ]
 
 # OpenRouter API endpoint
@@ -157,6 +157,9 @@ MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "arteus_art_agora")
 
 # Conference mode - shows maintenance screen and blocks API requests
 END_CONFERENCE_MODE = os.getenv("END_CONFERENCE_MODE", "false").lower() == "true"
+
+# When true, the Russian language option is hidden in the UI and default falls back to English
+DISABLE_RUSSIAN_LANGUAGE = os.getenv("DISABLE_RUSSIAN_LANGUAGE", "false").lower() == "true"
 
 # Leads mode configuration
 LEADS_MODE = os.getenv("LEADS_MODE", "true").lower() == "true"

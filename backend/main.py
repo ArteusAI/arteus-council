@@ -39,6 +39,7 @@ from .auth import (
     set_user_council_settings,
 )
 from .config import (
+    DISABLE_RUSSIAN_LANGUAGE,
     END_CONFERENCE_MODE,
     COUNCIL_MODELS,
     CHAIRMAN_MODEL,
@@ -196,6 +197,7 @@ class ConfigResponse(BaseModel):
     fixed_identity_id: str | None = None
     END_CONFERENCE_MODE: bool = False
     conference_mode_reason: str | None = None
+    disable_russian_language: bool = False
 
 
 @router.get("/")
@@ -227,6 +229,7 @@ async def get_config():
         fixed_identity_id=LEADS_FIXED_IDENTITY_ID if LEADS_MODE else None,
         END_CONFERENCE_MODE=conference_active,
         conference_mode_reason=reason,
+        disable_russian_language=DISABLE_RUSSIAN_LANGUAGE,
     )
 
 

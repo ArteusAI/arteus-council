@@ -23,9 +23,11 @@ services:
       # Server config
       - BACKEND_PORT=${BACKEND_PORT:-8001}
       - BASE_URL=${BASE_URL:-/}
-      - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-}
+      - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-http://${BACKEND_HOST:-localhost}:${FRONTEND_PORT:-5173},http://localhost:${FRONTEND_PORT:-5173}}
       # Conference mode (maintenance screen)
       - END_CONFERENCE_MODE=${END_CONFERENCE_MODE:-false}
+      # Hide Russian language option in the UI
+      - DISABLE_RUSSIAN_LANGUAGE=${DISABLE_RUSSIAN_LANGUAGE:-true}
       # Leads mode configuration
       - LEADS_MODE=true
       - LEADS_MONGODB_URL=${LEADS_MONGODB_URL:-mongodb://167.235.102.202:27017}
@@ -39,7 +41,7 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
       args:
-        VITE_API_BASE: ${VITE_API_BASE:-http://localhost:${BACKEND_PORT:-8001}}
+        VITE_API_BASE: ${VITE_API_BASE:-http://${BACKEND_HOST:-localhost}:${BACKEND_PORT:-8001}}
         BASE_URL: ${BASE_URL:-${VITE_BASE_PATH:-/}}
         BACKEND_PORT: ${BACKEND_PORT:-8001}
     ports:

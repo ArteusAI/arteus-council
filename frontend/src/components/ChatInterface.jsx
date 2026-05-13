@@ -144,17 +144,18 @@ export default function ChatInterface({
   const latestStage2FallbackRef = useRef(null);
   const latestStage3Ref = useRef(null);
 
-  // URL detection for leads mode (accepts URLs with or without protocol)
-  const urlPattern = /(https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(\/[^\s<>"{}|\\^`[\]]*)?/gi;
-  const hasUrl = urlPattern.test(input);
-  const leadsUrlRequired = leadsMode && !hasUrl && input.trim().length > 0;
+  // In leads mode the entire input must be a single URL (with or without protocol).
+  const urlOnlyPattern = /^(https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}([/?#][^\s]*)?$/i;
+  const trimmedInput = input.trim();
+  const hasUrl = urlOnlyPattern.test(trimmedInput);
+  const leadsUrlRequired = leadsMode && !hasUrl && trimmedInput.length > 0;
 
-  // Auto-resize textarea
+  // Auto-resize textarea (skip for plain inputs used in leads mode)
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      const scrollHeight = textareaRef.current.scrollHeight;
-      textareaRef.current.style.height = `${scrollHeight}px`;
+    const el = textareaRef.current;
+    if (el && el.tagName === 'TEXTAREA') {
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight}px`;
     }
   }, [input]);
 
@@ -541,7 +542,7 @@ export default function ChatInterface({
             <p>{t('emptySubtitle')}</p>
           </div>
         ) : (
-          conversation.messages.map((msg, index) => (
+          conversation.messages.filter(Boolean).map((msg, index) => (
             <div key={index} className="message-group">
               {msg.role === 'user' ? (
                 <div
@@ -831,7 +832,8 @@ export default function ChatInterface({
                         </svg>
                         {copiedIndex === index ? t('copiedToClipboard') : t('copyMarkdown')}
                       </button>
-                      {onRunNextRound &&
+                      {!leadsMode &&
+                        onRunNextRound &&
                         index === conversation.messages.length - 1 &&
                         !msg.metadata?.second_round_enabled &&
                         getUserQuestionForMessage(index) && (
@@ -918,29 +920,52 @@ export default function ChatInterface({
 
       {conversation.messages.length === 0 && (
         <div className="input-form-container">
+          {leadsMode && (
+            <div className="leads-url-prompt">
+              {t('leadsUrlPromptTitle') || 'Provide a URL of your website to analyze your business profile'}
+            </div>
+          )}
           <form className="input-form" onSubmit={handleSubmit}>
-            <textarea
-              ref={textareaRef}
-              className="message-input"
-              placeholder={leadsMode ? (t('askPlaceholderLeads') || 'Paste a URL to analyze...') : t('askPlaceholder')}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={isLoading || selectedModels.length === 0 || !modelsLoaded}
-              rows={1}
-            />
-            <div className="input-actions">
-              <button
-                type="button"
-                className={`brain-mode-button ${enableSecondRound ? 'active' : ''}`}
-                onClick={() => onSetSecondRound(!enableSecondRound)}
-                aria-label={`${t('brainModeAriaLabel')}: ${enableSecondRound ? t('brainModeTwo') : t('brainModeOne')}`}
-                aria-pressed={enableSecondRound}
-                data-tooltip={enableSecondRound ? t('brainModeTwo') : t('brainModeOne')}
+            {leadsMode ? (
+              <input
+                ref={textareaRef}
+                type="text"
+                inputMode="url"
+                autoComplete="url"
+                spellCheck={false}
+                className="message-input message-input-url"
+                placeholder={t('askPlaceholderLeads') || 'https://your-website.com'}
+                value={input}
+                onChange={(e) => setInput(e.target.value.replace(/\s+/g, ''))}
+                onKeyDown={handleKeyDown}
                 disabled={isLoading || selectedModels.length === 0 || !modelsLoaded}
-              >
-                <BrainGlyph count={1} />
-              </button>
+              />
+            ) : (
+              <textarea
+                ref={textareaRef}
+                className="message-input"
+                placeholder={t('askPlaceholder')}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={isLoading || selectedModels.length === 0 || !modelsLoaded}
+                rows={1}
+              />
+            )}
+            <div className="input-actions">
+              {!leadsMode && (
+                <button
+                  type="button"
+                  className={`brain-mode-button ${enableSecondRound ? 'active' : ''}`}
+                  onClick={() => onSetSecondRound(!enableSecondRound)}
+                  aria-label={`${t('brainModeAriaLabel')}: ${enableSecondRound ? t('brainModeTwo') : t('brainModeOne')}`}
+                  aria-pressed={enableSecondRound}
+                  data-tooltip={enableSecondRound ? t('brainModeTwo') : t('brainModeOne')}
+                  disabled={isLoading || selectedModels.length === 0 || !modelsLoaded}
+                >
+                  <BrainGlyph count={1} />
+                </button>
+              )}
               <button
                 type="submit"
                 className="send-button"
