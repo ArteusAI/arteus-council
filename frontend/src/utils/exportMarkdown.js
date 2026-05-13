@@ -1,83 +1,102 @@
+import { getModelDisplayName } from './modelDisplay';
+
+function getRound(assistantMessage, roundNumber) {
+  return assistantMessage.rounds?.find((round) => round.round === roundNumber) || null;
+}
+
+function formatResponsesSection(lines, title, stageData) {
+  if (!stageData || stageData.length === 0) {
+    return;
+  }
+
+  lines.push('---');
+  lines.push('');
+  lines.push(`## ${title}`);
+  lines.push('');
+
+  for (const item of stageData) {
+    const modelName = getModelDisplayName(item.model);
+    lines.push(`### ${modelName}`);
+    lines.push('');
+    lines.push(item.response || '');
+    lines.push('');
+  }
+}
+
+function formatAggregateSection(lines, title, rankings) {
+  if (!Array.isArray(rankings) || rankings.length === 0) {
+    return;
+  }
+
+  lines.push('---');
+  lines.push('');
+  lines.push(`## ${title}`);
+  lines.push('');
+  lines.push('| Model | Avg | Votes |');
+  lines.push('|-------|-----|-------|');
+
+  for (const item of rankings) {
+    const modelName = getModelDisplayName(item.model);
+    const avg = typeof item.average_rank === 'number'
+      ? item.average_rank.toFixed(2)
+      : 'N/A';
+    const votes = item.rankings_count ?? 0;
+    lines.push(`| ${modelName} | ${avg} | ${votes} |`);
+  }
+
+  lines.push('');
+}
+
 /**
  * Format council response as Markdown text for clipboard.
  */
-export function formatCouncilAsMarkdown(userQuestion, assistantMessage, t, modelAliases = {}) {
-  const getModelName = (model) => modelAliases[model] || model.split('/')[1] || model;
+export function formatCouncilAsMarkdown(userQuestion, assistantMessage, t) {
   const lines = [];
   const now = new Date();
-  
-  lines.push('# Arteus Council');
+  const round1 = getRound(assistantMessage, 1);
+  const round2 = getRound(assistantMessage, 2);
+  const round1Stage1 = round1?.stage1 || assistantMessage.stage1 || [];
+  const round1Rankings = round1?.metadata?.aggregate_rankings
+    || assistantMessage.metadata?.aggregate_rankings
+    || [];
+  const round2Stage1 = round2?.stage1 || [];
+  const round2Rankings = round2?.metadata?.aggregate_rankings
+    || assistantMessage.metadata?.round2?.aggregate_rankings
+    || [];
+
+  lines.push(`# ${t('appName')}`);
   lines.push('');
   lines.push(`*${now.toLocaleString()}*`);
   lines.push('');
-  
-  // Question
   lines.push(`## ${t('youLabel')}`);
   lines.push('');
   lines.push(userQuestion);
   lines.push('');
-  
-  // Final Answer (Stage 3)
+
   if (assistantMessage.stage3) {
-    lines.push(`## ${t('stage3Title')}`);
+    const chairmanName = getModelDisplayName(assistantMessage.stage3.model || 'Chairman');
+    lines.push(`## ${t('stage3Title')} (${chairmanName})`);
     lines.push('');
     lines.push(assistantMessage.stage3.response);
     lines.push('');
   }
-  
-  // Stage 1: Individual Responses
-  const stage1Data = assistantMessage.stage1;
-  if (stage1Data && (Array.isArray(stage1Data) ? stage1Data.length > 0 : Object.keys(stage1Data).length > 0)) {
-    lines.push('---');
-    lines.push('');
-    lines.push(`## ${t('stage1Title')}`);
-    lines.push('');
-    
-    const entries = Array.isArray(stage1Data)
-      ? stage1Data.map((item) => [item.model, item.response])
-      : Object.entries(stage1Data);
-    
-    for (const [model, response] of entries) {
-      lines.push(`### ${getModelName(model)}`);
-      lines.push('');
-      const responseText = typeof response === 'string' ? response : String(response || '');
-      lines.push(responseText);
-      lines.push('');
-    }
+
+  formatResponsesSection(lines, t('stage1Title'), round1Stage1);
+  formatAggregateSection(lines, t('aggregateRankings'), round1Rankings);
+
+  if (round2Stage1.length > 0) {
+    formatResponsesSection(lines, t('round2Stage1Title'), round2Stage1);
+    formatAggregateSection(lines, t('round2Stage2Title'), round2Rankings);
   }
-  
-  // Stage 2: Aggregate Rankings
-  if (assistantMessage.metadata?.aggregate_rankings) {
-    lines.push('---');
-    lines.push('');
-    lines.push(`## ${t('aggregateRankings')}`);
-    lines.push('');
-    
-    const rankings = assistantMessage.metadata.aggregate_rankings;
-    const sortedModels = Object.entries(rankings)
-      .filter(([, data]) => data && typeof data.average === 'number')
-      .sort((a, b) => a[1].average - b[1].average);
-    
-    lines.push('| Model | Avg | Votes |');
-    lines.push('|-------|-----|-------|');
-    
-    for (const [model, data] of sortedModels) {
-      const avg = typeof data.average === 'number' ? data.average.toFixed(2) : 'N/A';
-      const votes = data.votes ?? 0;
-      lines.push(`| ${getModelName(model)} | ${avg} | ${votes} |`);
-    }
-    lines.push('');
-  }
-  
+
   return lines.join('\n');
 }
 
 /**
  * Copy council response as Markdown to clipboard.
  */
-export async function copyCouncilAsMarkdown(userQuestion, assistantMessage, t, modelAliases = {}) {
-  const markdown = formatCouncilAsMarkdown(userQuestion, assistantMessage, t, modelAliases);
+export async function copyCouncilAsMarkdown(userQuestion, assistantMessage, t) {
+  const markdown = formatCouncilAsMarkdown(userQuestion, assistantMessage, t);
   await navigator.clipboard.writeText(markdown);
   return markdown;
 }
-

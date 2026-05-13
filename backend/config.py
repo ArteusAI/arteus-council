@@ -18,6 +18,19 @@ def _parse_csv_env(value: str | None) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def _parse_float_env(name: str, default: float) -> float:
+    """Parse a float env var, falling back to a sane default."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+
+    try:
+        return float(value)
+    except ValueError:
+        print(f"Warning: {name} must be a number, using default {default}")
+        return default
+
+
 def _normalize_root_path(value: str | None) -> str:
     """Normalize a path prefix such as /council for mounting under subpaths."""
     if not value:
@@ -54,6 +67,21 @@ GIGACHAT_PARALLEL_DISABLED = os.getenv("GIGACHAT_PARALLEL_DISABLED", "True").low
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
 YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
 
+# Arteus Agora RAG credentials
+AGORA_API_KEY = os.getenv("AGORA_API_KEY")
+AGORA_API_BASE_URL = os.getenv("AGORA_API_BASE_URL", "https://api.arteus.tech/agora/v1").rstrip("/")
+AGORA_MODEL_ID = os.getenv("AGORA_MODEL_ID", "agora/rag")
+AGORA_POLL_INTERVAL_SECONDS = max(0.0, _parse_float_env("AGORA_POLL_INTERVAL_SECONDS", 1.0))
+PEER_EVALUATION_TIMEOUT_SECONDS = max(
+    1.0,
+    _parse_float_env("PEER_EVALUATION_TIMEOUT_SECONDS", 300.0),
+)
+COUNCIL_PUBLIC_BASE_URL = (
+    os.getenv("COUNCIL_PUBLIC_BASE_URL")
+    or os.getenv("PUBLIC_BASE_URL")
+    or "https://api.arteus.us/council/"
+)
+
 # Firecrawl API key for URL scraping
 FIRECRAWL_API_KEY = os.getenv("FIRECRAWL_API_KEY")
 if not FIRECRAWL_API_KEY:
@@ -61,7 +89,7 @@ if not FIRECRAWL_API_KEY:
 else:
     print(f"FIRECRAWL_API_KEY loaded: {FIRECRAWL_API_KEY[:4]}...{FIRECRAWL_API_KEY[-4:]}")
 
-# Council members - list of OpenRouter model identifiers
+# Council members - list of provider model identifiers
 COUNCIL_MODELS = [
     "openai/gpt-5.4-mini",
     "google/gemini-3-flash-preview",
@@ -296,6 +324,12 @@ PERSONALIZATION_TEMPLATES = {
         "name": "Creative & Exploratory",
         "name_ru": "Творческий подход",
         "prompt": "Be creative and think outside the box. Explore unconventional solutions and alternative approaches.",
+    },
+    "straight": {
+        "id": "straight",
+        "name": "Straight Talk",
+        "name_ru": "Прямой разговор",
+        "prompt": "Отвечай чётко и по существу. Никакой воды, вводных фраз и расшаркиваний. Можно неформально — главное конкретика. Если что-то не так — скажи прямо. Никаких расшаркиваний, вводных фраз и политкорректного тумана. Сказал — значит сказал. Ответы должны быть детализированными: раскрывай важные шаги, нюансы, ограничения и практические последствия, но без воды.",
     },
     "tractor": {
         "id": "tractor",

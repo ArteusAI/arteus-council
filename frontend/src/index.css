@@ -110,6 +110,8 @@ body {
 /* Global markdown styling */
 .markdown-content {
   padding: 12px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .markdown-content p {
@@ -139,6 +141,20 @@ body {
   margin-top: 0;
 }
 
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6,
+.markdown-content p,
+.markdown-content li,
+.markdown-content blockquote,
+.markdown-content a {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .markdown-content ul,
 .markdown-content ol {
   margin: 0 0 12px 0;
@@ -154,6 +170,7 @@ body {
   padding: 12px;
   border-radius: 4px;
   overflow-x: auto;
+  max-width: 100%;
   margin: 0 0 12px 0;
 }
 
@@ -164,11 +181,15 @@ body {
   font-family: monospace;
   font-size: 0.9em;
   color: var(--text-primary);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .markdown-content pre code {
   background: none;
   padding: 0;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .markdown-content blockquote {
@@ -193,6 +214,24 @@ body {
 
 .markdown-content a:visited {
   color: #9fa8da;
+}
+
+.markdown-content table {
+  width: 100%;
+  max-width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.markdown-content th,
+.markdown-content td {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.markdown-content img {
+  max-width: 100%;
+  height: auto;
 }
 
 /* Mobile responsive global styles */

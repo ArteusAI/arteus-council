@@ -6,6 +6,7 @@ import LeadsLoginInterface from './components/LeadsLoginInterface';
 import ConferenceModeScreen from './components/ConferenceModeScreen';
 import { api } from './api';
 import { translate } from './i18n';
+import { isAgoraModel } from './utils/modelDisplay';
 import './App.css';
 
 const normalizeLang = (code) => {
@@ -29,16 +30,25 @@ function App() {
   const [currentConversationId, setCurrentConversationId] = useState(() => {
     try {
       return localStorage.getItem('arteusCurrentConversationId') || null;
-    } catch (e) {
+    } catch {
       return null;
     }
   });
   const [currentConversation, setCurrentConversation] = useState(null);
+  const [isConversationLoading, setIsConversationLoading] = useState(false);
+  const [showConversationLoadingSpinner, setShowConversationLoadingSpinner] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [availableModels, setAvailableModels] = useState([]);
   const [identityTemplates, setIdentityTemplates] = useState([]);
   const [selectedModels, setSelectedModels] = useState([]);
   const [chairmanModel, setChairmanModel] = useState('');
+  const [enableSecondRound, setEnableSecondRound] = useState(() => {
+    try {
+      return window.sessionStorage.getItem('arteusEnableSecondRound') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [baseSystemPrompt, setBaseSystemPrompt] = useState('');
   const [baseSystemPromptId, setBaseSystemPromptId] = useState('custom');
   const [modelsLoaded, setModelsLoaded] = useState(false);
@@ -58,6 +68,28 @@ function App() {
   const abortControllerRef = useRef(null);
   const activeStreamConversationRef = useRef(null);
   const inProgressConversationRef = useRef(null);
+  const conversationLoadRequestRef = useRef(0);
+  const conversationLoadDelayRef = useRef(null);
+  const currentConversationIdRef = useRef(currentConversationId);
+
+  useEffect(() => {
+    currentConversationIdRef.current = currentConversationId;
+  }, [currentConversationId]);
+
+  const clearConversationLoadingDelay = useCallback(() => {
+    if (conversationLoadDelayRef.current) {
+      window.clearTimeout(conversationLoadDelayRef.current);
+      conversationLoadDelayRef.current = null;
+    }
+  }, []);
+
+  const stopConversationLoading = useCallback(() => {
+    clearConversationLoadingDelay();
+    setIsConversationLoading(false);
+    setShowConversationLoadingSpinner(false);
+  }, [clearConversationLoadingDelay]);
+
+  useEffect(() => () => clearConversationLoadingDelay(), [clearConversationLoadingDelay]);
 
   // Check for mobile device on mount
   useEffect(() => {
@@ -135,7 +167,7 @@ function App() {
     }
   };
 
-  const t = (key) => translate(language, key);
+  const t = useCallback((key) => translate(language, key), [language]);
 
   // Check config and authentication on mount
   useEffect(() => {
@@ -236,33 +268,7 @@ function App() {
     loadModels();
   }, [authChecked, user, leadUser, ipBypassed, leadsMode]);
 
-  // Load conversation details when selected
-  useEffect(() => {
-    if (currentConversationId) {
-      // If there's an in-progress conversation state for this ID, restore it
-      if (inProgressConversationRef.current && 
-          inProgressConversationRef.current.id === currentConversationId) {
-        setCurrentConversation(inProgressConversationRef.current);
-      } else {
-        loadConversation(currentConversationId);
-      }
-    }
-  }, [currentConversationId]);
-
-  // Save current conversation ID to localStorage when it changes
-  useEffect(() => {
-    try {
-      if (currentConversationId) {
-        localStorage.setItem('arteusCurrentConversationId', currentConversationId);
-      } else {
-        localStorage.removeItem('arteusCurrentConversationId');
-      }
-    } catch (e) {
-      console.warn('Failed to save current conversation ID', e);
-    }
-  }, [currentConversationId]);
-
-  const loadConversations = async () => {
+  const loadConversations = useCallback(async () => {
     try {
       const convs = leadsMode 
         ? await api.listLeadsConversations()
@@ -294,9 +300,9 @@ function App() {
     } catch (error) {
       console.error('Failed to load conversations:', error);
     }
-  };
+  }, [currentConversationId, leadsMode]);
 
-  const loadModels = async () => {
+  const loadModels = useCallback(async () => {
     try {
       // In leads mode, skip council settings (they're fixed)
       const promises = [
@@ -355,10 +361,16 @@ function App() {
         if (savedModelsStr) {
           savedModels = JSON.parse(savedModelsStr);
           // Validate saved models are still available
-          savedModels = savedModels.filter((m) => councilList.includes(m));
+          savedModels = savedModels.filter((m) =>
+            councilList.includes(m) && !isAgoraModel(m)
+          );
           if (savedModels.length === 0) savedModels = null;
         }
-        if (savedChairmanStr && councilList.includes(savedChairmanStr)) {
+        if (
+          savedChairmanStr &&
+          councilList.includes(savedChairmanStr) &&
+          !isAgoraModel(savedChairmanStr)
+        ) {
           savedChairman = savedChairmanStr;
         }
       } catch (e) {
@@ -374,7 +386,6 @@ function App() {
       if (savedModels) {
         setSelectedModels(savedModels);
       } else {
-        // Default to preferred models, fallback to all if none specified
         setSelectedModels(defaultSelection.length > 0 ? defaultSelection : councilList);
       }
 
@@ -393,13 +404,87 @@ function App() {
     } finally {
       setModelsLoaded(true);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!conversations.some((conversation) => conversation.job_status)) return;
+    const intervalId = window.setInterval(() => {
+      loadConversations();
+    }, 5000);
+    return () => window.clearInterval(intervalId);
+  }, [conversations, loadConversations]);
+
+  const loadConversation = useCallback(async (id, options = {}) => {
+    const { showOverlay = true } = options;
+    const requestId = conversationLoadRequestRef.current + 1;
+    conversationLoadRequestRef.current = requestId;
+    clearConversationLoadingDelay();
+
+    if (showOverlay) {
+      setIsConversationLoading(true);
+      setShowConversationLoadingSpinner(false);
+      conversationLoadDelayRef.current = window.setTimeout(() => {
+        if (conversationLoadRequestRef.current === requestId) {
+          setShowConversationLoadingSpinner(true);
+        }
+      }, 1000);
+    }
+
+    try {
+      const conv = leadsMode
+        ? await api.getLeadsConversation(id)
+        : await api.getConversation(id);
+      if (conversationLoadRequestRef.current === requestId) {
+        setCurrentConversation(conv);
+      }
+    } catch (error) {
+      if (conversationLoadRequestRef.current === requestId) {
+        console.error('Failed to load conversation:', error);
+      }
+    } finally {
+      if (conversationLoadRequestRef.current === requestId) {
+        stopConversationLoading();
+      }
+    }
+  }, [clearConversationLoadingDelay, stopConversationLoading]);
+
+  // Load conversation details when selected
+  useEffect(() => {
+    if (currentConversationId) {
+      // If there's an in-progress conversation state for this ID, restore it
+      if (inProgressConversationRef.current && 
+          inProgressConversationRef.current.id === currentConversationId) {
+        conversationLoadRequestRef.current += 1;
+        stopConversationLoading();
+        setCurrentConversation(inProgressConversationRef.current);
+      } else {
+        loadConversation(currentConversationId);
+      }
+    } else {
+      conversationLoadRequestRef.current += 1;
+      stopConversationLoading();
+    }
+  }, [currentConversationId, loadConversation, stopConversationLoading]);
+
+  // Save current conversation ID to localStorage when it changes
+  useEffect(() => {
+    try {
+      if (currentConversationId) {
+        localStorage.setItem('arteusCurrentConversationId', currentConversationId);
+      } else {
+        localStorage.removeItem('arteusCurrentConversationId');
+      }
+    } catch (e) {
+      console.warn('Failed to save current conversation ID', e);
+    }
+  }, [currentConversationId]);
 
   // Save selected models to sessionStorage when they change
   useEffect(() => {
     if (!modelsLoaded) return;
     try {
-      window.sessionStorage.setItem('arteusSelectedModels', JSON.stringify(selectedModels));
+      const persistentModels = selectedModels.filter((model) => !isAgoraModel(model));
+      window.sessionStorage.setItem('arteusSelectedModels', JSON.stringify(persistentModels));
     } catch (e) {
       console.warn('Failed to save selected models', e);
     }
@@ -409,22 +494,26 @@ function App() {
   useEffect(() => {
     if (!modelsLoaded || !chairmanModel) return;
     try {
+      if (isAgoraModel(chairmanModel)) {
+        window.sessionStorage.removeItem('arteusChairmanModel');
+        return;
+      }
       window.sessionStorage.setItem('arteusChairmanModel', chairmanModel);
     } catch (e) {
       console.warn('Failed to save chairman model', e);
     }
   }, [chairmanModel, modelsLoaded]);
 
-  const loadConversation = async (id) => {
+  useEffect(() => {
     try {
-      const conv = leadsMode 
-        ? await api.getLeadsConversation(id)
-        : await api.getConversation(id);
-      setCurrentConversation(conv);
-    } catch (error) {
-      console.error('Failed to load conversation:', error);
+      window.sessionStorage.setItem(
+        'arteusEnableSecondRound',
+        enableSecondRound ? 'true' : 'false'
+      );
+    } catch (e) {
+      console.warn('Failed to save brain mode', e);
     }
-  };
+  }, [enableSecondRound]);
 
   const handleNewConversation = async () => {
     try {
@@ -455,9 +544,11 @@ function App() {
 
   const handleDeleteConversation = async (id) => {
     try {
-      // Abort ongoing request if deleting current conversation
-      if (currentConversationId === id) {
+      // Detach the local observer; the backend delete cancels the job.
+      if (activeStreamConversationRef.current === id) {
         abortCurrentRequest();
+      }
+      if (currentConversationId === id) {
         setIsLoading(false);
       }
       if (leadsMode) {
@@ -501,10 +592,6 @@ function App() {
     );
   };
 
-  const resetSelectedModels = () => {
-    setSelectedModels(availableModels);
-  };
-
   const notifyJobComplete = (titleText, bodyText) => {
     if (typeof window === 'undefined' || !('Notification' in window)) return;
     const show = () => {
@@ -542,9 +629,223 @@ function App() {
     }
   };
 
-  const handleSendMessage = async (content) => {
+  const ensureAssistantRuntimeState = useCallback((message) => {
+    message.metadata = {
+      second_round_enabled: false,
+      second_round_status: 'skipped',
+      round2_finalists: [],
+      round2: null,
+      ...(message.metadata || {}),
+    };
+    const loading = message.loading || {};
+    message.loading = {
+      scraping: false,
+      stage1: false,
+      stage2: false,
+      round2Stage1: false,
+      round2Stage2: false,
+      stage3: false,
+      ...loading,
+    };
+    const progress = message.progress || {};
+    message.progress = {
+      stage1: progress.stage1 || { completed: [], total: [] },
+      stage2: progress.stage2 || { completed: [], total: [] },
+      round2Stage1: progress.round2Stage1 || { completed: [], total: [] },
+      round2Stage2: progress.round2Stage2 || { completed: [], total: [] },
+    };
+    if (!message.rounds) {
+      message.rounds = [];
+    }
+    return message;
+  }, []);
+
+  const setConversationJobStatus = useCallback((conversationId, status, progress = null, stage = null) => {
+    setConversations((prev) =>
+      prev.map((conversation) =>
+        conversation.id === conversationId
+          ? {
+              ...conversation,
+              job_status: status,
+              job_progress: status
+                ? progress ?? conversation.job_progress ?? 3
+                : null,
+              job_stage: status ? stage ?? conversation.job_stage ?? null : null,
+            }
+          : conversation
+      )
+    );
+  }, []);
+
+  const mergeJobSnapshotIntoConversation = useCallback((conversation, snapshot) => {
+    if (!conversation || !snapshot?.assistant_message) return conversation;
+    const assistantMessage = ensureAssistantRuntimeState(
+      JSON.parse(JSON.stringify(snapshot.assistant_message))
+    );
+    const messages = [...(conversation.messages || [])];
+    if (messages.length === 0 && snapshot.user_message) {
+      messages.push({ ...snapshot.user_message });
+    }
+    const lastIndex = messages.length - 1;
+    if (messages[lastIndex]?.role === 'assistant') {
+      messages[lastIndex] = assistantMessage;
+    } else {
+      messages.push(assistantMessage);
+    }
+    return { ...conversation, messages };
+  }, [ensureAssistantRuntimeState]);
+
+  const applyJobSnapshot = useCallback((conversationId, snapshot) => {
+    if (!snapshot) return;
+    const isActive = Boolean(snapshot.active);
+    setConversationJobStatus(
+      conversationId,
+      isActive ? snapshot.status : null,
+      snapshot.progress,
+      snapshot.stage
+    );
+
+    if (currentConversationIdRef.current === conversationId) {
+      setIsLoading(isActive);
+    }
+
+    if (!snapshot.assistant_message) return;
+
+    if (inProgressConversationRef.current?.id === conversationId) {
+      inProgressConversationRef.current = mergeJobSnapshotIntoConversation(
+        inProgressConversationRef.current,
+        snapshot
+      );
+    }
+
+    setCurrentConversation((prev) => {
+      if (prev?.id !== conversationId) return prev;
+      const updated = mergeJobSnapshotIntoConversation(prev, snapshot);
+      inProgressConversationRef.current = updated;
+      return updated;
+    });
+  }, [mergeJobSnapshotIntoConversation, setConversationJobStatus]);
+
+  const handleStreamComplete = useCallback((conversationId) => {
+    setConversationJobStatus(conversationId, null);
+    if (activeStreamConversationRef.current === conversationId) {
+      activeStreamConversationRef.current = null;
+    }
+    if (inProgressConversationRef.current?.id === conversationId) {
+      inProgressConversationRef.current = null;
+    }
+    loadConversations();
+    if (currentConversationIdRef.current === conversationId) {
+      loadConversation(conversationId, { showOverlay: false });
+      setIsLoading(false);
+    }
+    notifyJobComplete(
+      t('jobFinishedTitle'),
+      t('jobFinishedBody')
+    );
+  }, [loadConversation, loadConversations, setConversationJobStatus, t]);
+
+  const handleStreamFailure = useCallback((conversationId, shouldReload = false) => {
+    setConversationJobStatus(conversationId, null);
+    if (activeStreamConversationRef.current === conversationId) {
+      activeStreamConversationRef.current = null;
+    }
+    if (inProgressConversationRef.current?.id === conversationId) {
+      inProgressConversationRef.current = null;
+    }
+    if (currentConversationIdRef.current === conversationId) {
+      if (shouldReload) {
+        loadConversation(conversationId, { showOverlay: false });
+      }
+      setIsLoading(false);
+    }
+  }, [loadConversation, setConversationJobStatus]);
+
+  const connectToJobStream = useCallback((conversationId) => {
+    if (
+      activeStreamConversationRef.current === conversationId &&
+      abortControllerRef.current
+    ) {
+      return;
+    }
+
+    abortCurrentRequest();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    activeStreamConversationRef.current = conversationId;
+    if (currentConversationIdRef.current === conversationId) {
+      setIsLoading(true);
+    }
+
+    api.attachMessageStream(
+      conversationId,
+      (eventType, event) => {
+        if (eventType === 'job_snapshot') {
+          applyJobSnapshot(conversationId, event.data);
+          return;
+        }
+        if (eventType === 'complete') {
+          handleStreamComplete(conversationId);
+          return;
+        }
+        if (eventType === 'error') {
+          console.error('Stream error:', event.message);
+          handleStreamFailure(conversationId, true);
+        }
+      },
+      abortController.signal
+    ).catch((error) => {
+      if (error.name === 'AbortError') return;
+      console.error('Failed to attach to job stream:', error);
+      handleStreamFailure(conversationId, false);
+    }).finally(() => {
+      if (activeStreamConversationRef.current === conversationId) {
+        activeStreamConversationRef.current = null;
+      }
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+      }
+    });
+  }, [
+    abortCurrentRequest,
+    applyJobSnapshot,
+    handleStreamComplete,
+    handleStreamFailure,
+  ]);
+
+  const refreshConversationJob = useCallback(async (conversationId) => {
+    try {
+      const snapshot = await api.getConversationJob(conversationId);
+      applyJobSnapshot(conversationId, snapshot);
+      if (snapshot.active) {
+        connectToJobStream(conversationId);
+      } else if (currentConversationIdRef.current === conversationId) {
+        setIsLoading(false);
+      }
+    } catch (error) {
+      console.warn('Failed to refresh conversation job:', error);
+    }
+  }, [applyJobSnapshot, connectToJobStream]);
+
+  useEffect(() => {
+    if (!currentConversationId || currentConversation?.id !== currentConversationId) {
+      return;
+    }
+    refreshConversationJob(currentConversationId);
+  }, [currentConversation?.id, currentConversationId, refreshConversationJob]);
+
+  const handleSendMessage = async (content, options = {}) => {
+    const { continueLastAssistantRound = false } = options;
     if (!currentConversationId) return;
     if (!selectedModels || selectedModels.length === 0) return;
+    if (!content?.trim()) return;
+
+    if (continueLastAssistantRound) {
+      const currentMessages = currentConversation?.messages || [];
+      const lastMessage = currentMessages[currentMessages.length - 1];
+      if (!lastMessage || lastMessage.role !== 'assistant') return;
+      if (lastMessage.metadata?.second_round_enabled) return;
+    }
 
     // Abort any previous request
     abortCurrentRequest();
@@ -556,41 +857,77 @@ function App() {
     // Track which conversation this stream belongs to
     const streamConversationId = currentConversationId;
     activeStreamConversationRef.current = streamConversationId;
+    setConversationJobStatus(streamConversationId, 'running');
 
     setIsLoading(true);
     try {
-      // Optimistically add user message to UI
-      const userMessage = { role: 'user', content };
-      
-      // Create a partial assistant message that will be updated progressively
-      const assistantMessage = {
-        role: 'assistant',
-        stage1: null,
-        stage2: null,
-        stage3: null,
-        metadata: null,
-        scrapedLinks: null,
-        loading: {
-          scraping: false,
-          stage1: false,
-          stage2: false,
-          stage3: false,
-        },
-        progress: {
-          stage1: { completed: [], total: [] },
-          stage2: { completed: [], total: [] },
-        },
-      };
+      if (continueLastAssistantRound) {
+        setCurrentConversation((prev) => {
+          if (!prev?.messages?.length) return prev;
+          const messages = [...prev.messages];
+          const lastMsg = ensureAssistantRuntimeState(messages[messages.length - 1]);
+          lastMsg.stage3 = null;
+          lastMsg.metadata = {
+            ...lastMsg.metadata,
+            second_round_enabled: false,
+            second_round_status: 'skipped',
+            round2_finalists: [],
+            round2: null,
+          };
+          lastMsg.rounds = (lastMsg.rounds || []).filter((round) => round.round === 1);
+          lastMsg.loading.round2Stage1 = true;
+          lastMsg.loading.round2Stage2 = false;
+          lastMsg.loading.stage3 = false;
+          lastMsg.progress.round2Stage1 = { completed: [], total: [] };
+          lastMsg.progress.round2Stage2 = { completed: [], total: [] };
+          const updated = { ...prev, messages };
+          inProgressConversationRef.current = updated;
+          return updated;
+        });
+      } else {
+        // Optimistically add user message to UI
+        const userMessage = { role: 'user', content };
 
-      // Add both messages and initialize the in-progress state
-      setCurrentConversation((prev) => {
-        const updated = {
-          ...prev,
-          messages: [...prev.messages, userMessage, assistantMessage],
+        // Create a partial assistant message that will be updated progressively
+        const assistantMessage = {
+          role: 'assistant',
+          stage1: null,
+          stage2: null,
+          stage3: null,
+          metadata: {
+            second_round_enabled: enableSecondRound,
+            second_round_status: 'skipped',
+            round2_finalists: [],
+            round2: null,
+          },
+          rounds: [],
+          scrapedLinks: null,
+          loading: {
+            scraping: false,
+            stage1: false,
+            stage2: false,
+            round2Stage1: false,
+            round2Stage2: false,
+            stage3: false,
+          },
+          progress: {
+            stage1: { completed: [], total: [] },
+            stage2: { completed: [], total: [] },
+            round2Stage1: { completed: [], total: [] },
+            round2Stage2: { completed: [], total: [] },
+          },
         };
-        inProgressConversationRef.current = updated;
-        return updated;
-      });
+
+        // Add both messages and initialize the in-progress state
+        setCurrentConversation((prev) => {
+          const updated = {
+            ...prev,
+            messages: [...prev.messages, userMessage, assistantMessage],
+          };
+          inProgressConversationRef.current = updated;
+          return updated;
+        });
+      }
 
       // Helper to update conversation state
       const updateConversationState = (updater) => {
@@ -620,12 +957,25 @@ function App() {
       const streamMethod = leadsMode ? api.sendLeadsMessageStream : api.sendMessageStream;
       const streamArgs = leadsMode
         ? [streamConversationId, content, selectedModels, chairmanModel, language]
-        : [streamConversationId, content, selectedModels, chairmanModel, language, effectiveBasePrompt];
+        : [
+            streamConversationId,
+            content,
+            selectedModels,
+            chairmanModel,
+            language,
+            effectiveBasePrompt,
+            enableSecondRound || continueLastAssistantRound,
+            continueLastAssistantRound,
+          ];
 
       await streamMethod(
         ...streamArgs,
         (eventType, event) => {
         switch (eventType) {
+          case 'job_snapshot':
+            applyJobSnapshot(streamConversationId, event.data);
+            break;
+
           case 'scraping_start':
             updateConversationState((prev) => {
               const messages = [...prev.messages];
@@ -714,7 +1064,128 @@ function App() {
               const lastMsg = messages[messages.length - 1];
               lastMsg.stage2 = event.data;
               lastMsg.metadata = event.metadata;
+              lastMsg.rounds = [
+                {
+                  round: 1,
+                  stage1: lastMsg.stage1 || [],
+                  stage2: event.data || [],
+                  metadata: event.metadata || null,
+                },
+              ];
               lastMsg.loading.stage2 = false;
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'round2_stage1_start':
+            updateConversationState((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              lastMsg.loading.round2Stage1 = true;
+              lastMsg.progress.round2Stage1.total = event.data?.models || [];
+              lastMsg.progress.round2Stage1.completed = [];
+              lastMsg.metadata = {
+                ...(lastMsg.metadata || {}),
+                second_round_enabled: true,
+                round2_finalists: event.data?.finalists || event.data?.models || [],
+              };
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'round2_stage1_model_complete':
+            updateConversationState((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              if (!lastMsg.progress.round2Stage1.completed.includes(event.data.model)) {
+                lastMsg.progress.round2Stage1.completed = [
+                  ...lastMsg.progress.round2Stage1.completed,
+                  event.data.model,
+                ];
+              }
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'round2_stage1_complete':
+            updateConversationState((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              lastMsg.loading.round2Stage1 = false;
+              lastMsg.metadata = {
+                ...(lastMsg.metadata || {}),
+                second_round_enabled: true,
+                round2_finalists: event.metadata?.finalists || lastMsg.metadata?.round2_finalists || [],
+              };
+              const round1 = lastMsg.rounds?.[0] || {
+                round: 1,
+                stage1: lastMsg.stage1 || [],
+                stage2: lastMsg.stage2 || [],
+                metadata: lastMsg.metadata || null,
+              };
+              lastMsg.rounds = [
+                round1,
+                {
+                  round: 2,
+                  stage1: event.data || [],
+                  stage2: [],
+                  metadata: null,
+                },
+              ];
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'round2_stage2_start':
+            updateConversationState((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              lastMsg.loading.round2Stage2 = true;
+              lastMsg.progress.round2Stage2.total = event.data?.models || [];
+              lastMsg.progress.round2Stage2.completed = [];
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'round2_stage2_model_complete':
+            updateConversationState((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              if (!lastMsg.progress.round2Stage2.completed.includes(event.data.model)) {
+                lastMsg.progress.round2Stage2.completed = [
+                  ...lastMsg.progress.round2Stage2.completed,
+                  event.data.model,
+                ];
+              }
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'round2_stage2_complete':
+            updateConversationState((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              lastMsg.loading.round2Stage2 = false;
+              const round1 = lastMsg.rounds?.[0] || {
+                round: 1,
+                stage1: lastMsg.stage1 || [],
+                stage2: lastMsg.stage2 || [],
+                metadata: lastMsg.metadata || null,
+              };
+              const round2 = lastMsg.rounds?.[1] || {
+                round: 2,
+                stage1: [],
+                stage2: [],
+                metadata: null,
+              };
+              round2.stage2 = event.data || [];
+              round2.metadata = event.metadata || null;
+              lastMsg.rounds = [round1, round2];
+              lastMsg.metadata = {
+                ...(lastMsg.metadata || {}),
+                second_round_enabled: true,
+                round2: event.metadata || null,
+              };
               return { ...prev, messages };
             });
             break;
@@ -723,6 +1194,8 @@ function App() {
             updateConversationState((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
+              lastMsg.loading.round2Stage1 = false;
+              lastMsg.loading.round2Stage2 = false;
               lastMsg.loading.stage3 = true;
               return { ...prev, messages };
             });
@@ -733,6 +1206,12 @@ function App() {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.stage3 = event.data;
+              if (event.metadata) {
+                lastMsg.metadata = event.metadata;
+              }
+              if (event.rounds) {
+                lastMsg.rounds = event.rounds;
+              }
               lastMsg.loading.stage3 = false;
               return { ...prev, messages };
             });
@@ -745,12 +1224,13 @@ function App() {
 
           case 'complete':
             // Stream complete
+            setConversationJobStatus(streamConversationId, null);
             loadConversations();
             activeStreamConversationRef.current = null;
             inProgressConversationRef.current = null;
             // Reload the conversation to get the saved state
-            if (streamConversationId === currentConversationId) {
-              loadConversation(streamConversationId);
+            if (streamConversationId === currentConversationIdRef.current) {
+              loadConversation(streamConversationId, { showOverlay: false });
               setIsLoading(false);
             }
             notifyJobComplete(
@@ -761,9 +1241,13 @@ function App() {
 
           case 'error':
             console.error('Stream error:', event.message);
+            setConversationJobStatus(streamConversationId, null);
             activeStreamConversationRef.current = null;
             inProgressConversationRef.current = null;
-            if (streamConversationId === currentConversationId) {
+            if (streamConversationId === currentConversationIdRef.current) {
+              if (continueLastAssistantRound) {
+                loadConversation(streamConversationId, { showOverlay: false });
+              }
               setIsLoading(false);
             }
             break;
@@ -780,14 +1264,25 @@ function App() {
         return;
       }
       console.error('Failed to send message:', error);
-      // Remove optimistic messages on error
-      setCurrentConversation((prev) => ({
-        ...prev,
-        messages: prev.messages.slice(0, -2),
-      }));
+      setConversationJobStatus(streamConversationId, null);
+      activeStreamConversationRef.current = null;
+      inProgressConversationRef.current = null;
+      if (continueLastAssistantRound) {
+        if (streamConversationId === currentConversationIdRef.current) {
+          loadConversation(streamConversationId, { showOverlay: false });
+        }
+      } else {
+        // Remove optimistic messages on error
+        setCurrentConversation((prev) => ({
+          ...prev,
+          messages: prev.messages.slice(0, -2),
+        }));
+      }
       setIsLoading(false);
     } finally {
-      abortControllerRef.current = null;
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+      }
     }
   };
 
@@ -898,18 +1393,22 @@ function App() {
       <ChatInterface
         conversation={currentConversation}
         onSendMessage={handleSendMessage}
+        onRunNextRound={(content) => handleSendMessage(content, { continueLastAssistantRound: true })}
         isLoading={isLoading}
         availableModels={availableModels}
         selectedModels={selectedModels}
         onToggleModel={toggleModelSelection}
-        onResetModels={resetSelectedModels}
         chairmanModel={chairmanModel}
         onSelectChairman={setChairmanModel}
+        enableSecondRound={enableSecondRound}
+        onSetSecondRound={setEnableSecondRound}
         baseSystemPrompt={baseSystemPrompt}
         baseSystemPromptId={baseSystemPromptId}
         identityTemplates={identityTemplates}
         onUpdateBaseSystemPrompt={handleUpdateBaseSystemPrompt}
         modelsLoaded={modelsLoaded}
+        isConversationLoading={isConversationLoading}
+        showConversationLoadingSpinner={showConversationLoadingSpinner}
         language={language}
         t={t}
         hideIdentitySelector={leadsMode}

@@ -1,23 +1,22 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import ModelLabel from './ModelLabel';
 import './Stage1.css';
 
 const markdownComponents = {
   a: ({ node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />
 };
 
-export default function Stage1({ responses, t, modelAliases = {} }) {
+export default function Stage1({ responses, title, t }) {
   const [activeTab, setActiveTab] = useState(0);
 
   if (!responses || responses.length === 0) {
     return null;
   }
 
-  const getModelName = (model) => modelAliases[model] || model.split('/')[1] || model;
-
   return (
     <div className="stage stage1">
-      <h3 className="stage-title">{t('stage1Title')}</h3>
+      <h3 className="stage-title">{title || t('stage1Title')}</h3>
 
       <div className="tabs">
         {responses.map((resp, index) => (
@@ -26,13 +25,15 @@ export default function Stage1({ responses, t, modelAliases = {} }) {
             className={`tab ${activeTab === index ? 'active' : ''}`}
             onClick={() => setActiveTab(index)}
           >
-            {getModelName(resp.model)}
+            <ModelLabel model={resp.model} />
           </button>
         ))}
       </div>
 
       <div className="tab-content">
-        <div className="model-name">{getModelName(responses[activeTab].model)}</div>
+        <div className="model-name">
+          <ModelLabel model={responses[activeTab].model} />
+        </div>
         <div className="response-text markdown-content">
           <ReactMarkdown components={markdownComponents}>{responses[activeTab].response}</ReactMarkdown>
         </div>

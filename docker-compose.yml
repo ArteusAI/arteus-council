@@ -16,6 +16,9 @@ services:
       - YANDEX_API_KEY=${YANDEX_API_KEY}
       - YANDEX_FOLDER_ID=${YANDEX_FOLDER_ID}
       - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
+      - AGORA_API_KEY=${AGORA_API_KEY}
+      - COUNCIL_PUBLIC_BASE_URL=${COUNCIL_PUBLIC_BASE_URL:-https://api.arteus.us/council/}
+      - PEER_EVALUATION_TIMEOUT_SECONDS=${PEER_EVALUATION_TIMEOUT_SECONDS:-300}
       - BACKEND_PORT=${BACKEND_PORT:-8001}
       - BASE_URL=${BASE_URL:-/}
       - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-}
@@ -23,6 +26,7 @@ services:
       - END_CONFERENCE_MODE=${END_CONFERENCE_MODE:-false}
     volumes:
       - data:/app/data
+      - /tmp:/tmp
 
   frontend:
     build:

@@ -151,7 +151,10 @@ def add_assistant_message(
     conversation_id: str,
     stage1: List[Dict[str, Any]],
     stage2: List[Dict[str, Any]],
-    stage3: Dict[str, Any]
+    stage3: Dict[str, Any],
+    metadata: Optional[Dict[str, Any]] = None,
+    rounds: Optional[List[Dict[str, Any]]] = None,
+    scraped_links: Optional[List[Dict[str, Any]]] = None,
 ):
     """
     Add an assistant message with all 3 stages to a conversation.
@@ -162,19 +165,56 @@ def add_assistant_message(
         stage1: List of individual model responses
         stage2: List of model rankings
         stage3: Final synthesized response
+        metadata: Optional response metadata
+        rounds: Optional multi-round deliberation payload
+        scraped_links: Optional persisted scraped link metadata
     """
     conversation = get_conversation(session_id, conversation_id)
     if conversation is None:
         raise ValueError(f"Conversation {conversation_id} not found")
 
-    conversation["messages"].append({
+    message = {
         "role": "assistant",
         "stage1": stage1,
         "stage2": stage2,
-        "stage3": stage3
-    })
+        "stage3": stage3,
+    }
+    if metadata is not None:
+        message["metadata"] = metadata
+    if rounds is not None:
+        message["rounds"] = rounds
+    if scraped_links is not None:
+        message["scrapedLinks"] = scraped_links
+
+    conversation["messages"].append(message)
 
     save_conversation(session_id, conversation)
+
+
+def update_last_assistant_message(
+    session_id: str,
+    conversation_id: str,
+    message: Dict[str, Any],
+):
+    """
+    Replace the latest assistant message in a conversation.
+
+    Args:
+        session_id: Browser session identifier
+        conversation_id: Conversation identifier
+        message: Full assistant message payload to persist
+    """
+    conversation = get_conversation(session_id, conversation_id)
+    if conversation is None:
+        raise ValueError(f"Conversation {conversation_id} not found")
+
+    for index in range(len(conversation["messages"]) - 1, -1, -1):
+        if conversation["messages"][index].get("role") == "assistant":
+            conversation["messages"][index] = message
+            save_conversation(session_id, conversation)
+            return
+
+    raise ValueError(f"Conversation {conversation_id} has no assistant message")
 
 
 def update_conversation_title(session_id: str, conversation_id: str, title: str):

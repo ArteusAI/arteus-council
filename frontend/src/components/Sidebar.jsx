@@ -83,9 +83,9 @@ export default function Sidebar({
           <img
             className="sidebar-logo"
             src={logoSrc}
-            alt="Arteus Council logo"
+            alt={t('appName')}
           />
-          <div className="sidebar-title">Arteus Council</div>
+          <div className="sidebar-title">{t('appName')}</div>
         </div>
         <button className="new-conversation-btn" onClick={onNewConversation}>
           + {t('newConversation')}
@@ -97,31 +97,53 @@ export default function Sidebar({
           <div className="no-conversations">{t('noConversations')}</div>
         ) : (
           <>
-            {conversations.map((conv) => (
-              <div
-                key={conv.id}
-                className={`conversation-item ${
-                  conv.id === currentConversationId ? 'active' : ''
-                }`}
-                onClick={() => onSelectConversation(conv.id)}
-              >
-                <div className="conversation-content">
-                  <div className="conversation-title">
-                    {conv.title || 'New Conversation'}
-                  </div>
-                  <div className="conversation-meta">
-                    {conv.message_count} messages
-                  </div>
-                </div>
-                <button
-                  className="delete-btn"
-                  onClick={(e) => handleDelete(e, conv.id)}
-                  title={t('deleteChat')}
+            {conversations.map((conv) => {
+              const hasActiveJob = Boolean(conv.job_status);
+              const jobProgress = Math.max(
+                0,
+                Math.min(100, Number(conv.job_progress ?? 3))
+              );
+
+              return (
+                <div
+                  key={conv.id}
+                  className={`conversation-item ${
+                    conv.id === currentConversationId ? 'active' : ''
+                  } ${hasActiveJob ? 'has-progress' : ''}`}
+                  onClick={() => onSelectConversation(conv.id)}
                 >
-                  ×
-                </button>
-              </div>
-            ))}
+                  <div className="conversation-content">
+                    <div className="conversation-title">
+                      {conv.title || 'New Conversation'}
+                    </div>
+                    <div className="conversation-meta">
+                      {hasActiveJob ? (
+                        <span className="conversation-job-status">
+                          {t('jobRunning')} · {Math.round(jobProgress)}%
+                        </span>
+                      ) : (
+                        `${conv.message_count} messages`
+                      )}
+                    </div>
+                    {hasActiveJob && (
+                      <div className="conversation-progress-track" aria-hidden="true">
+                        <div
+                          className="conversation-progress-fill"
+                          style={{ width: `${jobProgress}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    className="delete-btn"
+                    onClick={(e) => handleDelete(e, conv.id)}
+                    title={t('deleteChat')}
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
             {conversations.length > 2 && (
               <button className="delete-all-btn" onClick={handleDeleteAll}>
                 {t('deleteAllChats')}

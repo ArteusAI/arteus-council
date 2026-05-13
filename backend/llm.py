@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional
 from . import openrouter
 from . import gigachat_adapter
 from . import yandex_adapter
+from . import agora_adapter
 
 logger = logging.getLogger("llm-council.llm")
 
@@ -32,6 +33,8 @@ async def query_model(
         return await gigachat_adapter.query_model(model, messages, timeout)
     elif model.startswith("yandex/"):
         return await yandex_adapter.query_model(model, messages, timeout)
+    elif model.startswith("agora/"):
+        return await agora_adapter.query_model(model, messages, timeout)
     else:
         # Default to OpenRouter for everything else
         return await openrouter.query_model(model, messages, timeout, temperature)

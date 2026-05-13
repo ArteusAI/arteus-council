@@ -1,5 +1,7 @@
 .sidebar {
+  flex: 0 0 260px;
   width: 260px;
+  min-width: 260px;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-primary);
   display: flex;
@@ -41,6 +43,7 @@
 }
 
 .sidebar-title {
+  font-family: Cinzel, serif;
   font-size: 18px;
   font-weight: 700;
   margin: 0;
@@ -90,6 +93,10 @@
   transition: background 0.2s;
 }
 
+.conversation-item.has-progress {
+  padding-bottom: 10px;
+}
+
 .conversation-item:hover {
   background: var(--bg-hover);
 }
@@ -121,6 +128,27 @@
 .conversation-meta {
   color: var(--text-tertiary);
   font-size: 12px;
+}
+
+.conversation-job-status {
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.conversation-progress-track {
+  height: 3px;
+  margin-top: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+}
+
+.conversation-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-primary);
+  box-shadow: 0 0 8px var(--accent-primary);
+  transition: width 0.45s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .delete-btn {

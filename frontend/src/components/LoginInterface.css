@@ -33,6 +33,7 @@
 }
 
 .login-title {
+  font-family: Cinzel, serif;
   font-size: 24px;
   font-weight: 600;
   color: var(--text-primary);

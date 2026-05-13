@@ -1,35 +1,35 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import ModelLabel from './ModelLabel';
+import { getModelDisplayName } from '../utils/modelDisplay';
 import './Stage2.css';
 
 const markdownComponents = {
   a: ({ node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />
 };
 
-function deAnonymizeText(text, labelToModel, modelAliases = {}) {
+function deAnonymizeText(text, labelToModel) {
   if (!labelToModel) return text;
 
   let result = text;
   // Replace each "Response X" with the actual model name
   Object.entries(labelToModel).forEach(([label, model]) => {
-    const modelShortName = modelAliases[model] || model.split('/')[1] || model;
+    const modelShortName = getModelDisplayName(model);
     result = result.replace(new RegExp(label, 'g'), `**${modelShortName}**`);
   });
   return result;
 }
 
-export default function Stage2({ rankings, labelToModel, aggregateRankings, t, modelAliases = {} }) {
+export default function Stage2({ rankings, labelToModel, aggregateRankings, aggregateRankingsRef, title, t }) {
   const [activeTab, setActiveTab] = useState(0);
 
   if (!rankings || rankings.length === 0) {
     return null;
   }
 
-  const getModelName = (model) => modelAliases[model] || model.split('/')[1] || model;
-
   return (
     <div className="stage stage2">
-      <h3 className="stage-title">{t('stage2Title')}</h3>
+      <h3 className="stage-title">{title || t('stage2Title')}</h3>
 
       <h4>{t('rawEvaluations')}</h4>
       <p className="stage-description">
@@ -43,18 +43,18 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings, t, m
             className={`tab ${activeTab === index ? 'active' : ''}`}
             onClick={() => setActiveTab(index)}
           >
-            {getModelName(rank.model)}
+            <ModelLabel model={rank.model} />
           </button>
         ))}
       </div>
 
       <div className="tab-content">
         <div className="ranking-model">
-          {getModelName(rankings[activeTab].model)}
+          <ModelLabel model={rankings[activeTab].model} />
         </div>
         <div className="ranking-content markdown-content">
           <ReactMarkdown components={markdownComponents}>
-            {deAnonymizeText(rankings[activeTab].ranking, labelToModel, modelAliases)}
+            {deAnonymizeText(rankings[activeTab].ranking, labelToModel)}
           </ReactMarkdown>
         </div>
 
@@ -66,7 +66,7 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings, t, m
               {rankings[activeTab].parsed_ranking.map((label, i) => (
                 <li key={i}>
                   {labelToModel && labelToModel[label]
-                    ? labelToModel[label].split('/')[1] || labelToModel[label]
+                    ? <ModelLabel model={labelToModel[label]} />
                     : label}
                 </li>
               ))}
@@ -76,7 +76,7 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings, t, m
       </div>
 
       {aggregateRankings && aggregateRankings.length > 0 && (
-        <div className="aggregate-rankings">
+        <div ref={aggregateRankingsRef} className="aggregate-rankings">
           <h4>{t('aggregateRankings')}</h4>
           <p className="stage-description">{t('aggregateDesc')}</p>
           <div className="aggregate-list">
@@ -84,7 +84,7 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings, t, m
               <div key={index} className="aggregate-item">
                 <span className="rank-position">#{index + 1}</span>
                 <span className="rank-model">
-                  {getModelName(agg.model)}
+                  <ModelLabel model={agg.model} />
                 </span>
                 <span className="rank-score">
                   {t('avgShort')}: {agg.average_rank.toFixed(2)}
