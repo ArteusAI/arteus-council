@@ -180,6 +180,7 @@ class LeadsRegisterRequest(BaseModel):
     """Request to register as a lead."""
     email: str | None = None
     telegram: str | None = None
+    linkedin: str | None = None
 
 
 class LeadsRegisterResponse(BaseModel):
@@ -189,6 +190,7 @@ class LeadsRegisterResponse(BaseModel):
     session_id: str
     email: str | None = None
     telegram: str | None = None
+    linkedin: str | None = None
 
 
 class ConfigResponse(BaseModel):
@@ -239,22 +241,27 @@ async def register_lead(request: LeadsRegisterRequest):
     if not LEADS_MODE:
         raise HTTPException(status_code=400, detail="Leads mode is not enabled")
 
-    if not request.email and not request.telegram:
+    if not request.email and not request.telegram and not request.linkedin:
         raise HTTPException(
             status_code=400,
-            detail="At least one of email or telegram is required"
+            detail="At least one of email, telegram or linkedin is required"
         )
 
     try:
-        lead = await leads_storage.register_lead(request.email, request.telegram)
+        lead = await leads_storage.register_lead(
+            request.email, request.telegram, request.linkedin
+        )
         session_id = lead["session_id"]
-        access_token = create_leads_token(session_id, request.email, request.telegram)
+        access_token = create_leads_token(
+            session_id, request.email, request.telegram, request.linkedin
+        )
 
         return LeadsRegisterResponse(
             access_token=access_token,
             session_id=session_id,
             email=request.email,
             telegram=request.telegram,
+            linkedin=request.linkedin,
         )
     except Exception as e:
         logger.error(f"Lead registration error: {e}")
@@ -269,6 +276,7 @@ async def get_lead_me(lead: LeadUser = Depends(get_current_lead)):
         "session_id": lead.session_id,
         "email": lead.email,
         "telegram": lead.telegram,
+        "linkedin": lead.linkedin,
     }
 
 

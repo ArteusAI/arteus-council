@@ -1,46 +1,71 @@
 import { useState } from 'react';
 import './LoginInterface.css';
 
+const CONTACT_TYPES = {
+  LINKEDIN: 'linkedin',
+  TELEGRAM: 'telegram',
+};
+
 function LeadsLoginInterface({ onRegister, error: externalError, t, theme, initialTelegram = '' }) {
-  const [telegram, setTelegram] = useState(initialTelegram);
+  const [contactType, setContactType] = useState(
+    initialTelegram ? CONTACT_TYPES.TELEGRAM : CONTACT_TYPES.LINKEDIN
+  );
+  const [value, setValue] = useState(initialTelegram || '');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
   const baseUrl = import.meta.env.BASE_URL || '/';
-  const logoSrc = theme === 'dark' 
+  const logoSrc = theme === 'dark'
     ? `${baseUrl}council_logo_black.png`
     : `${baseUrl}council_logo_white.png`;
 
-  const validateTelegram = (value) => {
-    const trimmedValue = value.trim();
-    
-    if (!trimmedValue.startsWith('@')) {
+  const validateTelegram = (raw) => {
+    const trimmed = raw.trim();
+    if (!trimmed.startsWith('@')) {
       return t?.('telegramMustStartWithAt') || 'Telegram username must start with @';
     }
-    
-    const username = trimmedValue.substring(1);
+    const username = trimmed.substring(1);
     if (username.length < 5) {
       return t?.('telegramTooShort') || 'Telegram username must be at least 5 characters after @';
     }
-    
-    const latinPattern = /^[a-zA-Z0-9_]+$/;
-    if (!latinPattern.test(username)) {
+    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
       return t?.('telegramLatinOnly') || 'Telegram username must contain only latin letters, numbers, and underscores';
     }
-    
     return null;
+  };
+
+  const validateLinkedin = (raw) => {
+    const trimmed = raw.trim();
+    const slug = /^[a-zA-Z0-9-]{3,100}$/;
+    const url = /^(https?:\/\/)?(www\.)?linkedin\.com\/in\/[a-zA-Z0-9-]{3,100}\/?$/i;
+    if (slug.test(trimmed) || url.test(trimmed)) {
+      return null;
+    }
+    return t?.('linkedinInvalid') || 'Enter LinkedIn slug or https://linkedin.com/in/<slug>';
+  };
+
+  const handleTypeChange = (type) => {
+    if (type === contactType) return;
+    setContactType(type);
+    setValue('');
+    setError('');
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!telegram.trim()) {
-      setError(t?.('leadsContactRequired') || 'Please provide your Telegram');
+
+    if (!value.trim()) {
+      setError(t?.('leadsContactRequired') || 'Please provide Telegram or LinkedIn');
       return;
     }
 
-    const telegramError = validateTelegram(telegram);
-    if (telegramError) {
-      setError(telegramError);
+    const validationError =
+      contactType === CONTACT_TYPES.TELEGRAM
+        ? validateTelegram(value)
+        : validateLinkedin(value);
+
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
@@ -48,13 +73,26 @@ function LeadsLoginInterface({ onRegister, error: externalError, t, theme, initi
     setError('');
 
     try {
-      await onRegister(null, telegram.trim());
+      const trimmed = value.trim();
+      if (contactType === CONTACT_TYPES.TELEGRAM) {
+        await onRegister(null, trimmed, null);
+      } else {
+        await onRegister(null, null, trimmed);
+      }
     } catch (err) {
       setError(err.message || t?.('registrationFailed') || 'Registration failed');
     } finally {
       setIsLoading(false);
     }
   };
+
+  const isLinkedin = contactType === CONTACT_TYPES.LINKEDIN;
+  const inputLabel = isLinkedin
+    ? (t?.('linkedin') || 'LinkedIn')
+    : (t?.('telegram') || 'Telegram');
+  const inputPlaceholder = isLinkedin
+    ? (t?.('linkedinPlaceholder') || 'https://linkedin.com/in/your-slug')
+    : (t?.('telegramPlaceholder') || '@username');
 
   return (
     <div className="login-container">
@@ -74,14 +112,33 @@ function LeadsLoginInterface({ onRegister, error: externalError, t, theme, initi
             <div className="login-error">{error || externalError}</div>
           )}
 
+          <div className="login-contact-type">
+            <button
+              type="button"
+              className={`login-contact-type-button${isLinkedin ? ' is-active' : ''}`}
+              onClick={() => handleTypeChange(CONTACT_TYPES.LINKEDIN)}
+              disabled={isLoading}
+            >
+              {t?.('linkedin') || 'LinkedIn'}
+            </button>
+            <button
+              type="button"
+              className={`login-contact-type-button${!isLinkedin ? ' is-active' : ''}`}
+              onClick={() => handleTypeChange(CONTACT_TYPES.TELEGRAM)}
+              disabled={isLoading}
+            >
+              {t?.('telegram') || 'Telegram'}
+            </button>
+          </div>
+
           <div className="login-field">
-            <label htmlFor="telegram">{t?.('telegram') || 'Telegram'}</label>
+            <label htmlFor="lead-contact">{inputLabel}</label>
             <input
-              id="telegram"
+              id="lead-contact"
               type="text"
-              value={telegram}
-              onChange={(e) => setTelegram(e.target.value)}
-              placeholder={t?.('telegramPlaceholder') || '@username'}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder={inputPlaceholder}
               disabled={isLoading}
               autoComplete="off"
               autoFocus

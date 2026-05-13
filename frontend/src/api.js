@@ -78,11 +78,11 @@ export const api = {
   /**
    * Register as a lead (leads mode only).
    */
-  async registerLead(email, telegram) {
+  async registerLead(email, telegram, linkedin) {
     const response = await fetch(`${API_BASE}/api/leads/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, telegram }),
+      body: JSON.stringify({ email, telegram, linkedin }),
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));

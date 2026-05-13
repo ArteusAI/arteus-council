@@ -62,6 +62,42 @@
   text-align: center;
 }
 
+.login-contact-type {
+  display: flex;
+  gap: 8px;
+  padding: 4px;
+  background: var(--input-bg);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+}
+
+.login-contact-type-button {
+  flex: 1;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.login-contact-type-button:hover:not(:disabled):not(.is-active) {
+  color: var(--text-primary);
+}
+
+.login-contact-type-button.is-active {
+  background: var(--accent-primary);
+  color: #ffffff;
+}
+
+.login-contact-type-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .login-field {
   display: flex;
   flex-direction: column;
@@ -152,13 +188,13 @@
   }
 
   .login-logo {
-    width: 60%;
-    max-width: 200px;
+    width: 75%;
+    max-width: 300px;
     margin-bottom: 12px;
   }
 
   .login-title {
-    font-size: 22px;
+    font-size: 28px;
   }
 
   .login-subtitle {
@@ -188,12 +224,12 @@
   }
 
   .login-logo {
-    width: 50%;
-    max-width: 160px;
+    width: 75%;
+    max-width: 240px;
   }
 
   .login-title {
-    font-size: 20px;
+    font-size: 25px;
   }
 
   .login-field input {

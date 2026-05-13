@@ -1011,7 +1011,9 @@
   text-align: center;
   background: rgba(230, 126, 34, 0.1);
   border-radius: 8px;
-  margin: 0 12px 8px 12px;
+  margin: 0 auto 8px auto;
+  width: fit-content;
+  max-width: calc(100% - 24px);
   border: 1px solid rgba(230, 126, 34, 0.3);
 }
 

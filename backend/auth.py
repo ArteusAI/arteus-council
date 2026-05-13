@@ -60,6 +60,7 @@ class LeadUser(BaseModel):
     session_id: str
     email: Optional[str] = None
     telegram: Optional[str] = None
+    linkedin: Optional[str] = None
     is_lead: bool = True
 
 
@@ -69,6 +70,7 @@ class LeadTokenData(BaseModel):
     session_id: str
     email: Optional[str] = None
     telegram: Optional[str] = None
+    linkedin: Optional[str] = None
     token_type: str = "lead"
 
 
@@ -346,12 +348,18 @@ async def get_current_user_optional(
 
 # Leads mode authentication functions
 
-def create_leads_token(session_id: str, email: Optional[str], telegram: Optional[str]) -> str:
+def create_leads_token(
+    session_id: str,
+    email: Optional[str],
+    telegram: Optional[str],
+    linkedin: Optional[str] = None,
+) -> str:
     """Create a JWT access token for a lead user."""
     data = {
         "session_id": session_id,
         "email": email,
         "telegram": telegram,
+        "linkedin": linkedin,
         "token_type": "lead",
     }
     return create_access_token(data)
@@ -367,6 +375,7 @@ def decode_leads_token(token: str) -> Optional[LeadTokenData]:
             session_id=payload.get("session_id", ""),
             email=payload.get("email"),
             telegram=payload.get("telegram"),
+            linkedin=payload.get("linkedin"),
             token_type="lead",
         )
     except JWTError as e:
@@ -404,6 +413,7 @@ async def get_current_lead(
         session_id=token_data.session_id,
         email=token_data.email,
         telegram=token_data.telegram,
+        linkedin=token_data.linkedin,
     )
 
 
@@ -426,4 +436,5 @@ async def get_current_lead_optional(
         session_id=token_data.session_id,
         email=token_data.email,
         telegram=token_data.telegram,
+        linkedin=token_data.linkedin,
     )

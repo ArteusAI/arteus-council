@@ -266,12 +266,13 @@ function App() {
     setUser(data.user);
   };
 
-  const handleLeadsRegister = async (email, telegram) => {
-    const data = await api.registerLead(email, telegram);
+  const handleLeadsRegister = async (email, telegram, linkedin) => {
+    const data = await api.registerLead(email, telegram, linkedin);
     setLeadUser({
       session_id: data.session_id,
       email: data.email,
       telegram: data.telegram,
+      linkedin: data.linkedin,
     });
   };
 

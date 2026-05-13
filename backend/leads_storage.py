@@ -27,19 +27,24 @@ def get_database():
     return get_mongo_client()[LEADS_MONGODB_DB_NAME]
 
 
-async def register_lead(email: Optional[str], telegram: Optional[str]) -> dict:
+async def register_lead(
+    email: Optional[str],
+    telegram: Optional[str],
+    linkedin: Optional[str] = None,
+) -> dict:
     """
     Register a new lead and create a session.
 
     Args:
         email: Optional email address
         telegram: Optional telegram handle
+        linkedin: Optional linkedin slug or URL
 
     Returns:
         Lead document with session_id
     """
-    if not email and not telegram:
-        raise ValueError("At least one of email or telegram is required")
+    if not email and not telegram and not linkedin:
+        raise ValueError("At least one of email, telegram or linkedin is required")
 
     db = get_database()
     leads = db["leads"]
@@ -49,11 +54,15 @@ async def register_lead(email: Optional[str], telegram: Optional[str]) -> dict:
         "session_id": session_id,
         "email": email,
         "telegram": telegram,
+        "linkedin": linkedin,
         "created_at": datetime.now(timezone.utc),
     }
 
     await leads.insert_one(lead_doc)
-    logger.info(f"Registered lead: session={session_id}, email={email}, telegram={telegram}")
+    logger.info(
+        f"Registered lead: session={session_id}, email={email}, "
+        f"telegram={telegram}, linkedin={linkedin}"
+    )
 
     return lead_doc
 
@@ -99,6 +108,7 @@ async def create_conversation(session_id: str, conversation_id: str) -> dict[str
         "session_id": session_id,
         "lead_email": lead.get("email"),
         "lead_telegram": lead.get("telegram"),
+        "lead_linkedin": lead.get("linkedin"),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "title": "New Conversation",
         "messages": [],
