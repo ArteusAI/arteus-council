@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import './Sidebar.css';
 import DemosceneEasterEgg from './DemosceneEasterEgg';
 import PersonalizationSettings from './PersonalizationSettings';
+import ChatControls from './ChatControls';
 
 export default function Sidebar({
   conversations,
@@ -21,6 +22,22 @@ export default function Sidebar({
   leadsMode = false,
   disableRussian = false,
   leadsAnalysisBusy = false,
+  availableModels = [],
+  selectedModels = [],
+  onToggleModel,
+  chairmanModel,
+  onSelectChairman,
+  baseSystemPrompt = '',
+  baseSystemPromptId = 'custom',
+  identityTemplates = [],
+  onUpdateBaseSystemPrompt,
+  modelsLoaded = false,
+  hideIdentitySelector = false,
+  showModelPicker = false,
+  onToggleModelPicker,
+  showBasePromptSettings = false,
+  onToggleBasePromptSettings,
+  onCloseBasePromptSettings,
 }) {
   const [showEasterEgg, setShowEasterEgg] = useState(false);
   const [showPersonalization, setShowPersonalization] = useState(false);
@@ -188,6 +205,31 @@ export default function Sidebar({
             )}
           </>
         )}
+      </div>
+
+      <div className={`sidebar-chat-controls${showModelPicker || showBasePromptSettings ? ' is-open' : ''}`}>
+        <ChatControls
+          availableModels={availableModels}
+          selectedModels={selectedModels}
+          onToggleModel={onToggleModel}
+          chairmanModel={chairmanModel}
+          onSelectChairman={onSelectChairman}
+          baseSystemPrompt={baseSystemPrompt}
+          baseSystemPromptId={baseSystemPromptId}
+          identityTemplates={identityTemplates}
+          onUpdateBaseSystemPrompt={onUpdateBaseSystemPrompt}
+          modelsLoaded={modelsLoaded}
+          language={language}
+          t={t}
+          hideIdentitySelector={hideIdentitySelector}
+          leadsMode={leadsMode}
+          showModelPicker={showModelPicker}
+          onToggleModelPicker={onToggleModelPicker}
+          showBasePromptSettings={showBasePromptSettings}
+          onToggleBasePromptSettings={onToggleBasePromptSettings}
+          onCloseBasePromptSettings={onCloseBasePromptSettings}
+          compact
+        />
       </div>
 
       <div className="sidebar-footer">

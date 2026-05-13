@@ -55,7 +55,13 @@ function App() {
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const [modelAliases, setModelAliases] = useState({});
   const logoUrl = 'https://framerusercontent.com/images/G4MFpJVGo4QKdInsGAegy907Em4.png';
-  const [language, setLanguage] = useState('ru');
+  const [language, setLanguage] = useState(() => {
+    try {
+      return localStorage.getItem('arteusLang') || 'en';
+    } catch {
+      return 'en';
+    }
+  });
   const [theme, setTheme] = useState(() => {
     try {
       return localStorage.getItem('arteusTheme') || 'dark';
@@ -65,6 +71,8 @@ function App() {
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [showModelPicker, setShowModelPicker] = useState(false);
+  const [showBasePromptSettings, setShowBasePromptSettings] = useState(false);
   const [utmTelegram, setUtmTelegram] = useState('');
   const abortControllerRef = useRef(null);
   const activeStreamConversationRef = useRef(null);
@@ -1341,32 +1349,6 @@ function App() {
     );
   }
 
-  // Block mobile devices
-  if (isMobile) {
-    const baseUrl = import.meta.env.BASE_URL || '/';
-    return (
-      <div className={`app ${theme} mobile-block-screen`}>
-        <div className="mobile-block-content">
-          <img 
-            src={`${baseUrl}underconstruction.jpg`} 
-            alt="Under Construction" 
-            className="mobile-block-image"
-          />
-          <h1 className="mobile-block-title">Under Construction</h1>
-          <p className="mobile-block-text">
-            {language === 'ru' 
-              ? 'Мобильная версия в разработке. Пожалуйста, воспользуйтесь веб-версией с компьютера.'
-              : 'Mobile version is under development. Please use the web version from your computer.'}
-          </p>
-          <blockquote className="mobile-block-quote">
-            «В конце концов всё получается. Если не получилось — значит, это ещё не конец.»
-            <cite>— Фернандо Сабино</cite>
-          </blockquote>
-        </div>
-      </div>
-    );
-  }
-
   // Show loading state while checking config or auth
   if (!configLoaded || !authChecked) {
     return (
@@ -1443,12 +1425,29 @@ function App() {
         leadsMode={leadsMode}
         disableRussian={disableRussian}
         leadsAnalysisBusy={leadsAnalysisBusy}
+        availableModels={availableModels}
+        selectedModels={selectedModels}
+        onToggleModel={toggleModelSelection}
+        chairmanModel={chairmanModel}
+        onSelectChairman={setChairmanModel}
+        baseSystemPrompt={baseSystemPrompt}
+        baseSystemPromptId={baseSystemPromptId}
+        identityTemplates={identityTemplates}
+        onUpdateBaseSystemPrompt={handleUpdateBaseSystemPrompt}
+        modelsLoaded={modelsLoaded}
+        hideIdentitySelector={leadsMode}
+        showModelPicker={showModelPicker}
+        onToggleModelPicker={() => setShowModelPicker((p) => !p)}
+        showBasePromptSettings={showBasePromptSettings}
+        onToggleBasePromptSettings={() => setShowBasePromptSettings((p) => !p)}
+        onCloseBasePromptSettings={() => setShowBasePromptSettings(false)}
       />
       <ChatInterface
         conversation={currentConversation}
         onSendMessage={handleSendMessage}
         onRunNextRound={(content) => handleSendMessage(content, { continueLastAssistantRound: true })}
         isLoading={isLoading}
+        theme={theme}
         availableModels={availableModels}
         selectedModels={selectedModels}
         onToggleModel={toggleModelSelection}
@@ -1469,6 +1468,11 @@ function App() {
         leadsMode={leadsMode}
         leadsAnalysisBusy={leadsAnalysisBusy}
         modelAliases={modelAliases}
+        showModelPicker={showModelPicker}
+        onToggleModelPicker={() => setShowModelPicker((p) => !p)}
+        showBasePromptSettings={showBasePromptSettings}
+        onToggleBasePromptSettings={() => setShowBasePromptSettings((p) => !p)}
+        onCloseBasePromptSettings={() => setShowBasePromptSettings(false)}
       />
     </div>
   );

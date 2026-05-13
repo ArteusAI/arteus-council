@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import ModelLabel from './ModelLabel';
 import './Stage3.css';
 
 const markdownComponents = {
@@ -28,9 +27,6 @@ export default function Stage3({ finalResponse, t }) {
     <div className="stage stage3">
       <h3 className="stage-title">{t('stage3Title')}</h3>
       <div className="final-response">
-        <div className="chairman-label">
-          {t('chairmanLabel')}: <ModelLabel model={finalResponse.model} />
-        </div>
         <div className="final-text markdown-content">
           <ReactMarkdown components={markdownComponents}>{finalResponse.response}</ReactMarkdown>
         </div>

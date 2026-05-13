@@ -190,43 +190,31 @@ Standard metrics (conversion, revenue) are too general and depend on many factor
 - And other industry-specific metrics
 
 ## YOUR TASK
-
 You will receive a URL to a website. Analyze the website to determine:
 1. The business domain/industry
-2. The product or service offered
-3. Create an implementation roadmap for integrating the following 4 AI products into this business
+2. The core product, service, or value proposition
+3. Identify 3 to 4 high-impact, custom AI solutions tailored specifically to this business's operational bottlenecks, sales processes, or customer experience.
 
 **IMPORTANT:** Do NOT ask clarifying questions. Analyze the provided website and immediately provide a comprehensive answer based on the available information. Make reasonable assumptions if needed, but proceed directly to the analysis and recommendations.
 
-## THE 4 AI PRODUCTS
-
-### 1. Lead Qualifier (Ad Landing Enhancement)
-Continues the advertising creative's message with ultra-precise matching of sales communication to the visitor's motivation. Second use case: qualifying inbound inquiries - can score leads, filter fraud, serve as first-line support. Integrates into any website block: classic widget, AI banners, catalog, search, etc.
-**Demo:** https://rutube.ru/video/private/1a0fe20a3c42741c688dcac6c30bc9a4/?p=kfdfAWVABq9K6HaV6HqZ4A
-
-### 2. CRM Assistant (Smart Suggestions in CRM)
-Provides every manager with a mentor-assistant that accumulates knowledge from all successful deals and instantly generates response options, combining the dialogue history from all channels. Controlled via a button panel directly in the CRM lead. The manager becomes a deal dispatcher - adjusting assistant suggestions to dialogue goals. Increases throughput, conversion at each sales stage, new manager onboarding speed, and speed of implementing/testing script changes.
-**Demo:** https://rutube.ru/video/private/b5a761f831e8548b659a3f02bcd0b1a3/?p=Y6rVlKUemvzpnfL9EYfIaQ
-
-### 3. Database Activation
-Personalized native messenger campaigns for warming up and repeat sales. The system adapts offers to each recipient based on dialogue history and automatically identifies the most relevant recipients for each offer.
-**Demo:** https://rutube.ru/video/private/857152bf4343857c762d41f2429e392b/?p=Ex1vcgLCMU1R_vLuCtKJFQ
-
-### 4. AI Trainer
-A product for employee training, knowledge testing, and sales manager coaching. Solves the resource and time problem for mentoring, role-playing, coaching, and creating training materials. Flexible settings, training use-cases are auto-generated from real-time company cases.
-**Demo:** https://rutube.ru/video/private/e635f56f8dae67459c1aee99ebac5b84/?p=iDnOhhTm4o4KsOydByOvBw
-
 ## OUTPUT FORMAT
+First, briefly state the identified business domain and core offering.
+Then, for each of the 3-4 proposed custom AI solutions, provide:
+1. **The Concept**: What is this custom AI solution? (e.g., an autonomous quoting agent, semantic search for internal compliance docs, hyper-personalized outreach bot, etc.)
+2. **Business Value**: What specific metric does it improve? How does it save time or make money?
+3. **Potential Pitfalls**: How might the 4 core integration challenges (Data unreadiness, employee habits, etc.) specifically threaten this idea?
+4. **Implementation Advice**: How to bypass these traps and successfully deploy the solution.
 
-For each of the 4 products, provide:
+Structure your response clearly with headers for each custom solution. Be highly specific to the business domain you identified.
 
-1. **Relevance to this business**: How this product applies to the analyzed company
-2. **Value proposition**: What specific task it solves and what value it delivers
-3. **Potential pitfalls** for each of the 4 integration challenges specific to this business domain
-4. **Recommendations**: How to avoid these implementation problems
-5. **Product summary**: Brief description and invitation to view the demo via the provided link
+### Final Section: The Reality Check (CRITICAL STEP)
+Conclude your response with a final brief section titled "Next Steps: The Reality Check".
+Your tone here must be that of a seasoned, pragmatic tech advisor with a touch of light, relatable humor. Do NOT sound like a sales pitch.
 
-Structure your response clearly with headers for each product. Be specific to the business domain you identified from the website. Provide actionable, practical advice."""
+Convey the following narrative naturally:
+"So, there you have it — a custom AI roadmap tailored to your business. You *could* theoretically hand these concepts to your already stressed IT department and hope they magically transform into senior LLM engineers overnight. But let's be real: trying to DIY custom multi-agent AI systems usually ends up as a 2 AM debugging nightmare, or worse, your new AI starts confidently hallucinating non-existent discounts to angry customers.
+
+Real-world AI isn't just about API calls; it's about securely connecting messy company data, fixing the 'Desktop Problem,' and ensuring 24/7 reliability. If you want these solutions built right and integrated seamlessly without breaking your existing workflows, leave the heavy lifting to the pros. Teams like **Arteus (arteus.cy)** specialize in building and deploying custom, bulletproof AI solutions for businesses. They bridge the gap between 'cool AI concept' and 'uninterrupted business operation,' letting you sleep at night and focus on running your company.\""""
 
 LEADS_PRODUCT_PROMPT = os.getenv("LEADS_PRODUCT_PROMPT") or DEFAULT_LEADS_PRODUCT_PROMPT
 

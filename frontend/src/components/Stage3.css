@@ -1,6 +1,6 @@
 .stage3 {
-  background: var(--bg-stage3);
-  border-color: var(--border-stage3);
+  border-color: color-mix(in srgb, var(--text-success) 25%, transparent);
+  border-width: 3px;
   transition: background 0.3s ease, border-color 0.3s ease;
 }
 
@@ -14,9 +14,9 @@
 }
 
 .copy-response-btn {
-  position: absolute;
-  bottom: 12px;
-  right: 12px;
+  margin-top: 16px;
+  margin-left: auto;
+  width: fit-content;
   background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
   border-radius: 6px;
@@ -49,14 +49,6 @@
   font-weight: 500;
 }
 
-.chairman-label {
-  color: var(--text-success);
-  font-size: 12px;
-  font-family: monospace;
-  margin-bottom: 12px;
-  font-weight: 600;
-}
-
 .final-text {
   color: var(--text-primary);
   line-height: 1.7;
@@ -65,13 +57,13 @@
 
 /* Mobile responsive styles */
 @media (max-width: 768px) {
+  /* Flatten the inner response container into the outer stage3 block:
+     no nested background/border/padding wasting horizontal space. */
   .final-response {
-    padding: 16px;
-  }
-
-  .chairman-label {
-    font-size: 11px;
-    margin-bottom: 10px;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
   }
 
   .final-text {
@@ -86,16 +78,6 @@
     border-radius: 6px;
   }
 
-  .final-response {
-    padding: 12px;
-    border-radius: 5px;
-  }
-
-  .chairman-label {
-    font-size: 10px;
-    margin-bottom: 8px;
-  }
-
   .final-text {
     font-size: 13px;
     line-height: 1.5;
@@ -104,10 +86,6 @@
 
 /* Very small screens (320px) */
 @media (max-width: 360px) {
-  .final-response {
-    padding: 10px;
-  }
-
   .final-text {
     font-size: 12px;
   }

@@ -3,11 +3,16 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh;
   min-width: 0;
   overflow: hidden;
   background: var(--bg-primary);
   transition: background 0.3s ease;
   position: relative;
+}
+
+.chat-mobile-topbar {
+  display: none;
 }
 
 .conversation-loading-overlay {
@@ -469,8 +474,19 @@
 }
 
 .empty-state p {
-  margin: 0;
+  margin: 0 0 12px 0;
   font-size: 16px;
+  max-width: 640px;
+  line-height: 1.5;
+}
+
+.empty-state p:last-child {
+  margin-bottom: 0;
+}
+
+.empty-state-result {
+  color: var(--text-primary);
+  font-weight: 500;
 }
 
 .message-group {
@@ -1196,6 +1212,63 @@
 @media (max-width: 768px) {
   .chat-interface {
     width: 100%;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Hide the in-chat model-controls and progress bar on mobile;
+     controls live inside the sidebar drawer instead. */
+  .chat-interface > .model-controls,
+  .chat-interface > .progress-bar-container {
+    display: none;
+  }
+
+  .loading-warning {
+    display: none;
+  }
+
+  /* Compact topbar above the chat: logo + title + selected models list. */
+  .chat-mobile-topbar {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px 8px 64px;
+    border-bottom: 1px solid var(--border-primary);
+    background: var(--bg-secondary);
+    min-width: 0;
+  }
+
+  .chat-mobile-topbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .chat-mobile-topbar-logo {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+
+  .chat-mobile-topbar-title {
+    font-family: Cinzel, serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .chat-mobile-topbar-models {
+    font-size: 11px;
+    line-height: 1.3;
+    color: var(--text-tertiary, var(--text-secondary));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
 
   .model-controls {
@@ -1314,6 +1387,10 @@
     padding: 16px;
     flex-direction: column;
     gap: 10px;
+  }
+
+  .input-form-container-leads > * {
+    max-width: 83.3333%;
   }
 
   .input-actions {
