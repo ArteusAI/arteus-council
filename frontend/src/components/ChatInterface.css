@@ -70,6 +70,10 @@
   transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.loading-indicator-percent {
+  display: none;
+}
+
 .model-controls-header {
   display: flex;
   align-items: center;
@@ -1217,15 +1221,21 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
 
-  /* Hide the in-chat model-controls and progress bar on mobile;
-     controls live inside the sidebar drawer instead. */
-  .chat-interface > .model-controls,
-  .chat-interface > .progress-bar-container {
+  /* Hide the in-chat model-controls on mobile; controls live inside the
+     sidebar drawer instead. The progress bar stays visible right under the
+     mobile topbar so the user can see how far the council has progressed. */
+  .chat-interface > .model-controls {
     display: none;
   }
 
   .loading-warning {
     display: none;
+  }
+
+  .loading-indicator-percent {
+    display: inline;
+    color: var(--accent-primary);
+    font-weight: 600;
   }
 
   /* Compact topbar above the chat: logo + title + selected models list. */

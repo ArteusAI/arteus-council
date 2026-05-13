@@ -8,6 +8,7 @@ import ChatControls from './ChatControls';
 import { exportCouncilToPdf } from '../utils/exportPdf';
 import { copyCouncilAsMarkdown } from '../utils/exportMarkdown';
 import { getModelDisplayName } from '../utils/modelDisplay';
+import { safeStorage } from '../utils/safeStorage';
 import './ChatInterface.css';
 
 const markdownComponents = {
@@ -165,37 +166,27 @@ export default function ChatInterface({
     }
   }, [input]);
 
-  // Load draft when conversation changes
   useEffect(() => {
     if (conversation?.id) {
       let cancelled = false;
-      try {
-        const savedDraft = localStorage.getItem(`draft_${conversation.id}`);
-        queueMicrotask(() => {
-          if (!cancelled) {
-            setInput(savedDraft || '');
-          }
-        });
-      } catch (e) {
-        console.warn('Failed to load draft', e);
-      }
+      const savedDraft = safeStorage.get(`draft_${conversation.id}`);
+      queueMicrotask(() => {
+        if (!cancelled) {
+          setInput(savedDraft || '');
+        }
+      });
       return () => {
         cancelled = true;
       };
     }
   }, [conversation?.id]);
 
-  // Save draft when input changes
   useEffect(() => {
     if (conversation?.id) {
-      try {
-        if (input) {
-          localStorage.setItem(`draft_${conversation.id}`, input);
-        } else {
-          localStorage.removeItem(`draft_${conversation.id}`);
-        }
-      } catch (e) {
-        console.warn('Failed to save draft', e);
+      if (input) {
+        safeStorage.set(`draft_${conversation.id}`, input);
+      } else {
+        safeStorage.remove(`draft_${conversation.id}`);
       }
     }
   }, [input, conversation?.id]);
@@ -760,7 +751,10 @@ export default function ChatInterface({
         {isLoading && (
           <div className="loading-indicator">
             <div className="spinner"></div>
-            <span>{t('consulting')}</span>
+            <span>
+              {t('consulting')}
+              <span className="loading-indicator-percent"> {Math.round(progress)}%</span>
+            </span>
             <div className="loading-warning">{t('keepTabOpen')}</div>
           </div>
         )}

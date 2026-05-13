@@ -7,6 +7,7 @@ import ConferenceModeScreen from './components/ConferenceModeScreen';
 import { api } from './api';
 import { translate } from './i18n';
 import { isAgoraModel, setModelAliases as setGlobalModelAliases } from './utils/modelDisplay';
+import { safeStorage } from './utils/safeStorage';
 import './App.css';
 
 const normalizeLang = (code, { disableRussian = false } = {}) => {
@@ -28,13 +29,9 @@ function App() {
   const [leadUser, setLeadUser] = useState(null);
   const [ipBypassed, setIpBypassed] = useState(false);
   const [conversations, setConversations] = useState([]);
-  const [currentConversationId, setCurrentConversationId] = useState(() => {
-    try {
-      return localStorage.getItem('arteusCurrentConversationId') || null;
-    } catch {
-      return null;
-    }
-  });
+  const [currentConversationId, setCurrentConversationId] = useState(
+    () => safeStorage.get('arteusCurrentConversationId') || null
+  );
   const [currentConversation, setCurrentConversation] = useState(null);
   const [isConversationLoading, setIsConversationLoading] = useState(false);
   const [showConversationLoadingSpinner, setShowConversationLoadingSpinner] = useState(false);
@@ -43,32 +40,20 @@ function App() {
   const [identityTemplates, setIdentityTemplates] = useState([]);
   const [selectedModels, setSelectedModels] = useState([]);
   const [chairmanModel, setChairmanModel] = useState('');
-  const [enableSecondRound, setEnableSecondRound] = useState(() => {
-    try {
-      return window.sessionStorage.getItem('arteusEnableSecondRound') === 'true';
-    } catch {
-      return false;
-    }
-  });
+  const [enableSecondRound, setEnableSecondRound] = useState(
+    () => safeStorage.get('arteusEnableSecondRound') === 'true'
+  );
   const [baseSystemPrompt, setBaseSystemPrompt] = useState('');
   const [baseSystemPromptId, setBaseSystemPromptId] = useState('custom');
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const [modelAliases, setModelAliases] = useState({});
   const logoUrl = 'https://framerusercontent.com/images/G4MFpJVGo4QKdInsGAegy907Em4.png';
-  const [language, setLanguage] = useState(() => {
-    try {
-      return localStorage.getItem('arteusLang') || 'en';
-    } catch {
-      return 'en';
-    }
-  });
-  const [theme, setTheme] = useState(() => {
-    try {
-      return localStorage.getItem('arteusTheme') || 'dark';
-    } catch {
-      return 'dark';
-    }
-  });
+  const [language, setLanguage] = useState(
+    () => safeStorage.get('arteusLang') || 'en'
+  );
+  const [theme, setTheme] = useState(
+    () => safeStorage.get('arteusTheme') || 'dark'
+  );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
@@ -144,11 +129,7 @@ function App() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-    try {
-      localStorage.setItem('arteusTheme', theme);
-    } catch (e) {
-      console.warn('Theme save failed', e);
-    }
+    safeStorage.set('arteusTheme', theme);
   }, [theme]);
 
   const toggleTheme = useCallback(() => {
@@ -165,32 +146,24 @@ function App() {
 
   useEffect(() => {
     if (!configLoaded) return;
-    try {
-      const savedLang = localStorage.getItem('arteusLang');
-      if (savedLang) {
-        const normalized = normalizeLang(savedLang, { disableRussian });
-        setLanguage(normalized);
-        if (normalized !== savedLang) {
-          localStorage.setItem('arteusLang', normalized);
-        }
-        return;
+    const savedLang = safeStorage.get('arteusLang');
+    if (savedLang) {
+      const normalized = normalizeLang(savedLang, { disableRussian });
+      setLanguage(normalized);
+      if (normalized !== savedLang) {
+        safeStorage.set('arteusLang', normalized);
       }
-      const defaultLang = disableRussian ? 'en' : 'ru';
-      setLanguage(defaultLang);
-      localStorage.setItem('arteusLang', defaultLang);
-    } catch (e) {
-      console.warn('Language load failed', e);
+      return;
     }
+    const defaultLang = disableRussian ? 'en' : 'ru';
+    setLanguage(defaultLang);
+    safeStorage.set('arteusLang', defaultLang);
   }, [configLoaded, disableRussian]);
 
   const setLanguageSafe = (code) => {
     const normalized = normalizeLang(code, { disableRussian });
     setLanguage(normalized);
-    try {
-      localStorage.setItem('arteusLang', normalized);
-    } catch (e) {
-      console.warn('Language save failed', e);
-    }
+    safeStorage.set('arteusLang', normalized);
   };
 
   const t = useCallback((key) => translate(language, key), [language]);
@@ -387,15 +360,13 @@ function App() {
       setBaseSystemPrompt(promptText);
       setBaseSystemPromptId(promptId);
 
-      // Try to load saved models from sessionStorage
       let savedModels = null;
       let savedChairman = null;
       try {
-        const savedModelsStr = window.sessionStorage.getItem('arteusSelectedModels');
-        const savedChairmanStr = window.sessionStorage.getItem('arteusChairmanModel');
+        const savedModelsStr = safeStorage.get('arteusSelectedModels');
+        const savedChairmanStr = safeStorage.get('arteusChairmanModel');
         if (savedModelsStr) {
           savedModels = JSON.parse(savedModelsStr);
-          // Validate saved models are still available
           savedModels = savedModels.filter((m) =>
             councilList.includes(m) && !isAgoraModel(m)
           );
@@ -513,53 +484,31 @@ function App() {
     }
   }, [currentConversationId, loadConversation, stopConversationLoading]);
 
-  // Save current conversation ID to localStorage when it changes
   useEffect(() => {
-    try {
-      if (currentConversationId) {
-        localStorage.setItem('arteusCurrentConversationId', currentConversationId);
-      } else {
-        localStorage.removeItem('arteusCurrentConversationId');
-      }
-    } catch (e) {
-      console.warn('Failed to save current conversation ID', e);
+    if (currentConversationId) {
+      safeStorage.set('arteusCurrentConversationId', currentConversationId);
+    } else {
+      safeStorage.remove('arteusCurrentConversationId');
     }
   }, [currentConversationId]);
 
-  // Save selected models to sessionStorage when they change
   useEffect(() => {
     if (!modelsLoaded) return;
-    try {
-      const persistentModels = selectedModels.filter((model) => !isAgoraModel(model));
-      window.sessionStorage.setItem('arteusSelectedModels', JSON.stringify(persistentModels));
-    } catch (e) {
-      console.warn('Failed to save selected models', e);
-    }
+    const persistentModels = selectedModels.filter((model) => !isAgoraModel(model));
+    safeStorage.set('arteusSelectedModels', JSON.stringify(persistentModels));
   }, [selectedModels, modelsLoaded]);
 
-  // Save chairman model to sessionStorage when it changes
   useEffect(() => {
     if (!modelsLoaded || !chairmanModel) return;
-    try {
-      if (isAgoraModel(chairmanModel)) {
-        window.sessionStorage.removeItem('arteusChairmanModel');
-        return;
-      }
-      window.sessionStorage.setItem('arteusChairmanModel', chairmanModel);
-    } catch (e) {
-      console.warn('Failed to save chairman model', e);
+    if (isAgoraModel(chairmanModel)) {
+      safeStorage.remove('arteusChairmanModel');
+      return;
     }
+    safeStorage.set('arteusChairmanModel', chairmanModel);
   }, [chairmanModel, modelsLoaded]);
 
   useEffect(() => {
-    try {
-      window.sessionStorage.setItem(
-        'arteusEnableSecondRound',
-        enableSecondRound ? 'true' : 'false'
-      );
-    } catch (e) {
-      console.warn('Failed to save brain mode', e);
-    }
+    safeStorage.set('arteusEnableSecondRound', enableSecondRound ? 'true' : 'false');
   }, [enableSecondRound]);
 
   const handleNewConversation = async () => {
@@ -824,7 +773,11 @@ function App() {
       setIsLoading(true);
     }
 
-    api.attachMessageStream(
+    const attachMethod = leadsModeRef.current
+      ? api.attachLeadsMessageStream.bind(api)
+      : api.attachMessageStream.bind(api);
+
+    attachMethod(
       conversationId,
       (eventType, event) => {
         if (eventType === 'job_snapshot') {
@@ -861,8 +814,12 @@ function App() {
   ]);
 
   const refreshConversationJob = useCallback(async (conversationId) => {
+    if (!conversationId) return;
     try {
-      const snapshot = await api.getConversationJob(conversationId);
+      const fetchJob = leadsModeRef.current
+        ? api.getLeadsConversationJob.bind(api)
+        : api.getConversationJob.bind(api);
+      const snapshot = await fetchJob(conversationId);
       applyJobSnapshot(conversationId, snapshot);
       if (snapshot.active) {
         connectToJobStream(conversationId);
@@ -875,12 +832,32 @@ function App() {
   }, [applyJobSnapshot, connectToJobStream]);
 
   useEffect(() => {
-    if (leadsMode) return;
     if (!currentConversationId || currentConversation?.id !== currentConversationId) {
       return;
     }
     refreshConversationJob(currentConversationId);
-  }, [currentConversation?.id, currentConversationId, refreshConversationJob, leadsMode]);
+  }, [currentConversation?.id, currentConversationId, refreshConversationJob]);
+
+  // iOS Safari may freeze timers and the SSE socket when the tab goes into the
+  // background. Once the user comes back, re-sync the in-memory job state and
+  // re-attach to the stream so any in-flight council generation keeps showing
+  // progress / final results.
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      const conversationId = currentConversationIdRef.current;
+      if (!conversationId) return;
+      refreshConversationJob(conversationId);
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleVisibility);
+    window.addEventListener('pageshow', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleVisibility);
+      window.removeEventListener('pageshow', handleVisibility);
+    };
+  }, [refreshConversationJob]);
 
   const handleSendMessage = async (content, options = {}) => {
     const { continueLastAssistantRound = false } = options;

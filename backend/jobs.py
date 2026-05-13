@@ -9,7 +9,6 @@ import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import storage
 from .config import COUNCIL_MODELS
 from .council import (
     build_label_to_model,
@@ -25,6 +24,7 @@ from .council import (
     stage3_synthesize_final,
 )
 from .firecrawl import extract_urls, process_message_links
+from .job_storage import JobStorage, LocalJobStorage
 
 logger = logging.getLogger("llm-council.jobs")
 
@@ -182,6 +182,7 @@ class CouncilJob:
         base_system_prompt: str | None,
         is_first_message: bool,
         conversation: Dict[str, Any],
+        storage: JobStorage,
     ):
         self.user_id = user_id
         self.conversation_id = conversation_id
@@ -189,6 +190,7 @@ class CouncilJob:
         self.personal_prompt = personal_prompt
         self.base_system_prompt = base_system_prompt
         self.is_first_message = is_first_message
+        self.storage = storage
         self.status = "queued"
         self.stage = "queued"
         self.error: str | None = None
@@ -423,7 +425,9 @@ class CouncilJob:
         title_task: asyncio.Task | None = None
 
         if should_continue:
-            conversation = storage.get_conversation(self.user_id, self.conversation_id)
+            conversation = await self.storage.get_conversation(
+                self.user_id, self.conversation_id
+            )
             if conversation is None:
                 raise ValueError("Conversation not found")
             continuation_context = get_continuation_context(conversation)
@@ -440,7 +444,9 @@ class CouncilJob:
         else:
             content = request.get("content") or ""
             self.user_message = {"role": "user", "content": content}
-            storage.add_user_message(self.user_id, self.conversation_id, content)
+            await self.storage.add_user_message(
+                self.user_id, self.conversation_id, content
+            )
 
             urls = extract_urls(content)
             enriched_content = content
@@ -748,7 +754,9 @@ class CouncilJob:
 
         if title_task:
             title = await title_task
-            storage.update_conversation_title(self.user_id, self.conversation_id, title)
+            await self.storage.update_conversation_title(
+                self.user_id, self.conversation_id, title
+            )
             self.publish({"type": "title_complete", "data": {"title": title}})
 
         saved_message = {
@@ -761,13 +769,13 @@ class CouncilJob:
             "scrapedLinks": link_metadata,
         }
         if should_continue:
-            storage.update_last_assistant_message(
+            await self.storage.update_last_assistant_message(
                 self.user_id,
                 self.conversation_id,
                 saved_message,
             )
         else:
-            storage.add_assistant_message(
+            await self.storage.add_assistant_message(
                 self.user_id,
                 self.conversation_id,
                 stage1_results,
@@ -802,6 +810,7 @@ class CouncilJobManager:
         base_system_prompt: str | None,
         is_first_message: bool,
         conversation: Dict[str, Any],
+        storage: JobStorage | None = None,
         attach_only: bool = False,
     ) -> CouncilJob:
         async with self._lock:
@@ -826,6 +835,7 @@ class CouncilJobManager:
                 base_system_prompt=base_system_prompt,
                 is_first_message=is_first_message,
                 conversation=conversation,
+                storage=storage or LocalJobStorage(),
             )
             self._jobs[key] = job
             job.task = asyncio.create_task(job.run())

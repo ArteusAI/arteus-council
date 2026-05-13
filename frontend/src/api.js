@@ -2,6 +2,8 @@
  * API client for the LLM Council backend.
  */
 
+import { safeStorage } from './utils/safeStorage';
+
 // Allow overriding the backend URL via Vite env (VITE_API_BASE).
 // Default: same origin + Vite base path (supports hosting under a subpath, e.g. /council)
 const stripTrailingSlash = (url) => url.replace(/\/+$/, '');
@@ -33,22 +35,14 @@ const API_BASE = resolveApiBase();
 const AUTH_TOKEN_KEY = 'councilAuthToken';
 
 function getAuthToken() {
-  try {
-    return window.localStorage.getItem(AUTH_TOKEN_KEY);
-  } catch {
-    return null;
-  }
+  return safeStorage.get(AUTH_TOKEN_KEY);
 }
 
 function setAuthToken(token) {
-  try {
-    if (token) {
-      window.localStorage.setItem(AUTH_TOKEN_KEY, token);
-    } else {
-      window.localStorage.removeItem(AUTH_TOKEN_KEY);
-    }
-  } catch {
-    // localStorage unavailable
+  if (token) {
+    safeStorage.set(AUTH_TOKEN_KEY, token);
+  } else {
+    safeStorage.remove(AUTH_TOKEN_KEY);
   }
 }
 
@@ -591,15 +585,34 @@ export const api = {
   },
 
   /**
-   * Send a message and receive streaming updates for a lead (leads mode only).
+   * Get background job status for a lead conversation (leads mode only).
    */
-  async sendLeadsMessageStream(conversationId, content, models, chairmanModel, language, onEvent, signal) {
+  async getLeadsConversationJob(conversationId) {
+    const response = await fetch(
+      `${API_BASE}/api/leads/conversations/${conversationId}/job`,
+      {
+        headers: withAuth(),
+      }
+    );
+    if (!response.ok) {
+      throw new Error('Failed to get conversation job');
+    }
+    return response.json();
+  },
+
+  /**
+   * Send (or attach to) a leads-mode background council job and stream events.
+   */
+  async sendLeadsMessageStream(conversationId, content, models, chairmanModel, language, onEvent, signal, attachOnly = false) {
     const payload = { content, language };
     if (models && models.length > 0) {
       payload.models = models;
     }
     if (chairmanModel) {
       payload.chairman_model = chairmanModel;
+    }
+    if (attachOnly) {
+      payload.attach_only = true;
     }
     // Note: base_system_prompt is not sent in leads mode - it's fixed on the backend
 
@@ -676,5 +689,21 @@ export const api = {
         // Reader already released
       }
     }
+  },
+
+  /**
+   * Attach to an existing background leads stream without starting a new message.
+   */
+  async attachLeadsMessageStream(conversationId, onEvent, signal) {
+    return this.sendLeadsMessageStream(
+      conversationId,
+      '',
+      null,
+      null,
+      null,
+      onEvent,
+      signal,
+      true
+    );
   },
 };

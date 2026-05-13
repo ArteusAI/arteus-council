@@ -5,7 +5,6 @@ import uuid
 import json
 import asyncio
 import logging
-import time
 
 from fastapi import APIRouter, BackgroundTasks, Depends, FastAPI, HTTPException, Request
 
@@ -54,15 +53,12 @@ from .config import (
     COUNCIL_IDENTITY_TEMPLATES,
 )
 from .council import (
-    calculate_aggregate_rankings,
     generate_conversation_title,
     run_full_council,
-    stage1_collect_responses,
-    stage2_collect_rankings,
-    stage3_synthesize_final,
 )
-from .firecrawl import extract_urls, process_message_links
-from .jobs import JobConflictError, JobNotFoundError, job_manager
+from .firecrawl import process_message_links
+from .job_storage import LeadsJobStorage, LocalJobStorage
+from .jobs import CouncilJob, JobConflictError, JobNotFoundError, job_manager
 from .openrouter import check_api_limits
 
 
@@ -569,6 +565,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
             base_system_prompt=base_system_prompt_to_use,
             is_first_message=len(conversation["messages"]) == 0,
             conversation=conversation,
+            storage=LocalJobStorage(),
             attach_only=request.attach_only,
         )
     except JobNotFoundError as exc:
@@ -576,9 +573,20 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
     except (JobConflictError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    def sse_json(data: dict) -> str:
-        """Serialize data to JSON for SSE, ensuring proper escaping."""
-        return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    return _stream_council_job(job)
+
+
+def _sse_json(data: dict) -> str:
+    """Serialize data to JSON for SSE, ensuring proper escaping."""
+    return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+
+
+def _stream_council_job(job: CouncilJob) -> StreamingResponse:
+    """Wrap a ``CouncilJob`` event stream in an SSE ``StreamingResponse``.
+
+    The generator only reads from the job's subscriber queue, so dropping the
+    client connection unsubscribes us but never cancels the underlying task.
+    """
 
     async def event_generator():
         queue = job.subscribe()
@@ -590,7 +598,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
                     yield ": heartbeat\n\n"
                     continue
 
-                yield f"data: {sse_json(event)}\n\n"
+                yield f"data: {_sse_json(event)}\n\n"
                 if event.get("type") in {"complete", "error"} and not job.active:
                     break
         finally:
@@ -614,7 +622,8 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
 @router.get("/api/leads/conversations", response_model=List[ConversationMetadata])
 async def list_leads_conversations(lead: LeadUser = Depends(get_current_lead)):
     """List all conversations for a lead (leads mode only)."""
-    return await leads_storage.list_conversations(lead.session_id)
+    conversations = await leads_storage.list_conversations(lead.session_id)
+    return job_manager.apply_statuses(lead.session_id, conversations)
 
 
 @router.post("/api/leads/conversations", response_model=Conversation)
@@ -640,12 +649,25 @@ async def get_leads_conversation(
     return conversation
 
 
+@router.get("/api/leads/conversations/{conversation_id}/job")
+async def get_leads_conversation_job(
+    conversation_id: str,
+    lead: LeadUser = Depends(get_current_lead),
+):
+    """Get the in-memory background job status for a lead conversation."""
+    conversation = await leads_storage.get_conversation(lead.session_id, conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return job_manager.snapshot(lead.session_id, conversation_id)
+
+
 @router.delete("/api/leads/conversations/{conversation_id}")
 async def delete_leads_conversation(
     conversation_id: str,
     lead: LeadUser = Depends(get_current_lead),
 ):
     """Delete a specific conversation for a lead (leads mode only)."""
+    await job_manager.cancel_conversation(lead.session_id, conversation_id)
     deleted = await leads_storage.delete_conversation(lead.session_id, conversation_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -655,6 +677,7 @@ async def delete_leads_conversation(
 @router.delete("/api/leads/conversations")
 async def delete_all_leads_conversations(lead: LeadUser = Depends(get_current_lead)):
     """Delete all conversations for a lead (leads mode only)."""
+    await job_manager.cancel_all_for_user(lead.session_id)
     count = await leads_storage.delete_all_conversations(lead.session_id)
     return {"deleted_count": count}
 
@@ -696,248 +719,46 @@ async def send_leads_message_stream(
     request: SendMessageRequest,
     lead: LeadUser = Depends(get_current_lead),
 ):
-    """Send a message and stream the council process for a lead (leads mode only)."""
+    """Start or attach to a background council job for a lead and stream events."""
     if request.models is not None and len(request.models) == 0:
         raise HTTPException(status_code=400, detail="At least one model must be selected.")
 
     session_id = lead.session_id
 
-    # Check if conversation exists
     conversation = await leads_storage.get_conversation(session_id, conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    is_first_message = len(conversation["messages"]) == 0
-
-    # In leads mode, use the fixed identity prompt
     fixed_identity = COUNCIL_IDENTITY_TEMPLATES.get(LEADS_FIXED_IDENTITY_ID, {})
     base_system_prompt_to_use = fixed_identity.get("prompt", "")
-    
-    # Load personalization settings for this lead
+
     lead_settings = await leads_storage.get_lead_council_settings(session_id)
     personal_prompt = lead_settings.get("personal_prompt", "")
 
-    def sse_json(data: dict) -> str:
-        return json.dumps(data, ensure_ascii=False, separators=(',', ':'))
+    # Leads flow does not expose multi-round deliberation or continuation;
+    # strip those flags before handing the payload to the job runner.
+    request_payload = request.model_dump()
+    request_payload["enable_second_round"] = False
+    request_payload["continue_last_assistant_round"] = False
 
-    HEARTBEAT_INTERVAL = 15.0
+    try:
+        job = await job_manager.start_or_attach(
+            user_id=session_id,
+            conversation_id=conversation_id,
+            request_payload=request_payload,
+            personal_prompt=personal_prompt,
+            base_system_prompt=base_system_prompt_to_use,
+            is_first_message=len(conversation["messages"]) == 0,
+            conversation=conversation,
+            storage=LeadsJobStorage(),
+            attach_only=request.attach_only,
+        )
+    except JobNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (JobConflictError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    async def event_generator():
-        request_start = time.time()
-        logger.info(f"[LEADS:{conversation_id[:8]}] Stream started, models={request.models}")
-
-        running_tasks = []
-
-        try:
-            models_to_use = request.models or None
-            chairman_to_use = request.chairman_model or None
-
-            # Add user message
-            await leads_storage.add_user_message(session_id, conversation_id, request.content)
-
-            # Process links in message
-            urls = extract_urls(request.content)
-            enriched_content = request.content
-            link_metadata = []
-
-            if urls:
-                logger.info(f"[LEADS:{conversation_id[:8]}] Scraping {len(urls)} URLs...")
-                yield f"data: {sse_json({'type': 'scraping_start', 'data': {'urls': urls}})}\n\n"
-
-                try:
-                    scraping_task = asyncio.create_task(process_message_links(request.content))
-                    running_tasks.append(scraping_task)
-                    while not scraping_task.done():
-                        try:
-                            await asyncio.wait_for(asyncio.shield(scraping_task), timeout=HEARTBEAT_INTERVAL)
-                        except asyncio.TimeoutError:
-                            yield f": heartbeat\n\n"
-
-                    enriched_content, link_metadata, scrape_status = scraping_task.result()
-                    yield f"data: {sse_json({'type': 'scraping_complete', 'data': {'links': link_metadata}})}\n\n"
-                except Exception as e:
-                    logger.error(f"[LEADS:{conversation_id[:8]}] Scraping error: {e}")
-                    yield f"data: {sse_json({'type': 'scraping_error', 'message': str(e)})}\n\n"
-
-            # Start title generation in parallel
-            title_task = None
-            if is_first_message:
-                title_task = asyncio.create_task(generate_conversation_title(request.content))
-                running_tasks.append(title_task)
-
-            # Stage 1
-            completed_stage1_models = []
-            def stage1_callback(model, response):
-                completed_stage1_models.append(model)
-
-            yield f"data: {sse_json({'type': 'stage1_start', 'data': {'models': models_to_use or COUNCIL_MODELS}})}\n\n"
-
-            stage1_task = asyncio.create_task(stage1_collect_responses(
-                enriched_content,
-                models=models_to_use,
-                language=request.language,
-                base_system_prompt=base_system_prompt_to_use,
-                on_model_complete=stage1_callback
-            ))
-            running_tasks.append(stage1_task)
-
-            last_reported_count = 0
-            while not stage1_task.done():
-                try:
-                    await asyncio.wait_for(asyncio.shield(stage1_task), timeout=HEARTBEAT_INTERVAL)
-                except asyncio.TimeoutError:
-                    while last_reported_count < len(completed_stage1_models):
-                        model = completed_stage1_models[last_reported_count]
-                        yield f"data: {sse_json({'type': 'stage1_model_complete', 'data': {'model': model}})}\n\n"
-                        last_reported_count += 1
-                    yield f": heartbeat\n\n"
-
-            while last_reported_count < len(completed_stage1_models):
-                model = completed_stage1_models[last_reported_count]
-                yield f"data: {sse_json({'type': 'stage1_model_complete', 'data': {'model': model}})}\n\n"
-                last_reported_count += 1
-
-            stage1_results = stage1_task.result()
-            yield f"data: {sse_json({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
-
-            # Stage 2
-            completed_stage2_models = []
-            def stage2_callback(model, response):
-                completed_stage2_models.append(model)
-
-            yield f"data: {sse_json({'type': 'stage2_start', 'data': {'models': models_to_use or COUNCIL_MODELS}})}\n\n"
-
-            stage2_task = asyncio.create_task(stage2_collect_rankings(
-                enriched_content,
-                stage1_results,
-                models=models_to_use,
-                language=request.language,
-                base_system_prompt=base_system_prompt_to_use,
-                on_model_complete=stage2_callback
-            ))
-            running_tasks.append(stage2_task)
-
-            last_reported_count = 0
-            while not stage2_task.done():
-                try:
-                    await asyncio.wait_for(asyncio.shield(stage2_task), timeout=HEARTBEAT_INTERVAL)
-                except asyncio.TimeoutError:
-                    while last_reported_count < len(completed_stage2_models):
-                        model = completed_stage2_models[last_reported_count]
-                        yield f"data: {sse_json({'type': 'stage2_model_complete', 'data': {'model': model}})}\n\n"
-                        last_reported_count += 1
-                    yield f": heartbeat\n\n"
-
-            while last_reported_count < len(completed_stage2_models):
-                model = completed_stage2_models[last_reported_count]
-                yield f"data: {sse_json({'type': 'stage2_model_complete', 'data': {'model': model}})}\n\n"
-                last_reported_count += 1
-
-            stage2_results, label_to_model = stage2_task.result()
-            aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
-            yield f"data: {sse_json({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
-
-            # Stage 3
-            yield f"data: {sse_json({'type': 'stage3_start'})}\n\n"
-
-            stage3_task = asyncio.create_task(stage3_synthesize_final(
-                enriched_content,
-                stage1_results,
-                stage2_results,
-                chairman_model=chairman_to_use,
-                language=request.language,
-                personal_prompt=personal_prompt,
-                base_system_prompt=base_system_prompt_to_use,
-            ))
-            running_tasks.append(stage3_task)
-            while not stage3_task.done():
-                try:
-                    await asyncio.wait_for(asyncio.shield(stage3_task), timeout=HEARTBEAT_INTERVAL)
-                except asyncio.TimeoutError:
-                    yield f": heartbeat\n\n"
-            stage3_result = stage3_task.result()
-            yield f"data: {sse_json({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
-
-            # Wait for title generation
-            if title_task:
-                while not title_task.done():
-                    try:
-                        await asyncio.wait_for(asyncio.shield(title_task), timeout=HEARTBEAT_INTERVAL)
-                    except asyncio.TimeoutError:
-                        yield f": heartbeat\n\n"
-                title = title_task.result()
-                await leads_storage.update_conversation_title(session_id, conversation_id, title)
-                yield f"data: {sse_json({'type': 'title_complete', 'data': {'title': title}})}\n\n"
-
-            # Save assistant message
-            logger.info(f"[LEADS:{conversation_id[:8]}] Saving: stage1={len(stage1_results)} items, stage2={len(stage2_results)} items, stage3={bool(stage3_result)}")
-            await leads_storage.add_assistant_message(
-                session_id,
-                conversation_id,
-                stage1_results,
-                stage2_results,
-                stage3_result,
-                scraped_links=link_metadata if link_metadata else None,
-            )
-
-            total_duration = time.time() - request_start
-            logger.info(f"[LEADS:{conversation_id[:8]}] Stream complete, total={total_duration:.1f}s")
-            yield f"data: {sse_json({'type': 'complete'})}\n\n"
-
-        except asyncio.CancelledError:
-            elapsed = time.time() - request_start
-            logger.warning(f"[LEADS:{conversation_id[:8]}] Stream CANCELLED after {elapsed:.1f}s")
-            
-            # Save partial results if any stages completed
-            partial_stage1 = []
-            partial_stage2 = []
-            partial_stage3 = None
-            
-            # Check which tasks completed
-            for task in running_tasks:
-                if task.done() and not task.cancelled():
-                    try:
-                        if 'stage1_task' in locals() and task is stage1_task:
-                            partial_stage1 = task.result()
-                        elif 'stage2_task' in locals() and task is stage2_task:
-                            partial_stage2, _ = task.result()
-                        elif 'stage3_task' in locals() and task is stage3_task:
-                            partial_stage3 = task.result()
-                    except Exception as e:
-                        logger.error(f"Error getting partial result: {e}")
-            
-            # Save partial results if we have at least stage1 or stage3
-            if partial_stage1 or partial_stage3:
-                logger.info(f"[LEADS:{conversation_id[:8]}] Saving partial results: stage1={len(partial_stage1)}, stage2={len(partial_stage2)}, stage3={bool(partial_stage3)}")
-                await leads_storage.add_assistant_message(
-                    session_id,
-                    conversation_id,
-                    partial_stage1,
-                    partial_stage2,
-                    partial_stage3 or {"model": "system", "response": "Processing was interrupted. Please refresh to retry."},
-                    scraped_links=link_metadata if link_metadata else None,
-                )
-            
-            for task in running_tasks:
-                if not task.done():
-                    task.cancel()
-            if running_tasks:
-                await asyncio.gather(*running_tasks, return_exceptions=True)
-            raise
-        except Exception as e:
-            elapsed = time.time() - request_start
-            logger.error(f"[LEADS:{conversation_id[:8]}] Stream ERROR after {elapsed:.1f}s: {e}")
-            yield f"data: {sse_json({'type': 'error', 'message': str(e)})}\n\n"
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        }
-    )
+    return _stream_council_job(job)
 
 
 API_PREFIX = BACKEND_ROOT_PATH or ""

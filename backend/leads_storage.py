@@ -233,29 +233,25 @@ async def add_assistant_message(
     stage1: list[dict[str, Any]],
     stage2: list[dict[str, Any]],
     stage3: dict[str, Any],
+    metadata: dict[str, Any] | None = None,
+    rounds: list[dict[str, Any]] | None = None,
     scraped_links: list[dict[str, Any]] | None = None,
 ):
-    """
-    Add an assistant message with all 3 stages to a conversation.
-
-    Args:
-        session_id: Lead session identifier
-        conversation_id: Conversation identifier
-        stage1: List of individual model responses
-        stage2: List of model rankings
-        stage3: Final synthesized response
-        scraped_links: Optional list of scraped link metadata
-    """
+    """Add an assistant message with all 3 stages to a conversation."""
     db = get_database()
     conversations = db["conversations"]
 
-    message_data = {
+    message_data: dict[str, Any] = {
         "role": "assistant",
         "stage1": stage1 or [],
         "stage2": stage2 or [],
         "stage3": stage3,
     }
-    
+
+    if metadata is not None:
+        message_data["metadata"] = metadata
+    if rounds is not None:
+        message_data["rounds"] = rounds
     if scraped_links:
         message_data["scrapedLinks"] = scraped_links
 
@@ -266,6 +262,35 @@ async def add_assistant_message(
 
     if result.matched_count == 0:
         raise ValueError(f"Conversation {conversation_id} not found")
+
+
+async def update_last_assistant_message(
+    session_id: str,
+    conversation_id: str,
+    message: dict[str, Any],
+):
+    """Replace the latest assistant message in a conversation."""
+    db = get_database()
+    conversations = db["conversations"]
+
+    doc = await conversations.find_one(
+        {"_id": conversation_id, "session_id": session_id},
+        {"messages": 1},
+    )
+    if doc is None:
+        raise ValueError(f"Conversation {conversation_id} not found")
+
+    messages = doc.get("messages", [])
+    for index in range(len(messages) - 1, -1, -1):
+        if messages[index].get("role") == "assistant":
+            messages[index] = message
+            await conversations.update_one(
+                {"_id": conversation_id, "session_id": session_id},
+                {"$set": {"messages": messages}},
+            )
+            return
+
+    raise ValueError(f"Conversation {conversation_id} has no assistant message")
 
 
 async def update_conversation_title(session_id: str, conversation_id: str, title: str):
