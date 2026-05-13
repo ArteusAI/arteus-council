@@ -64,8 +64,8 @@
 .mobile-menu-btn {
   display: none;
   position: fixed;
-  top: 12px;
-  left: 12px;
+  top: max(12px, env(safe-area-inset-top));
+  left: max(12px, env(safe-area-inset-left));
   z-index: 1001;
   width: 44px;
   height: 44px;

@@ -1218,6 +1218,9 @@
 @media (max-width: 768px) {
   .chat-interface {
     width: 100%;
+    /* Respect the iPhone notch / dynamic island so the mobile topbar isn't
+       clipped behind it under viewport-fit=cover. */
+    padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
   }
 
@@ -1238,7 +1241,9 @@
     font-weight: 600;
   }
 
-  /* Compact topbar above the chat: logo + title + selected models list. */
+  /* Compact topbar above the chat: logo + title + selected models list.
+     Sticky-pinned so iOS Safari URL-bar resizes / bounce-scroll never push it
+     out of the visible viewport. */
   .chat-mobile-topbar {
     display: flex;
     flex-direction: column;
@@ -1247,6 +1252,17 @@
     border-bottom: 1px solid var(--border-primary);
     background: var(--bg-secondary);
     min-width: 0;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+
+  /* Keep the thin progress bar anchored right under the sticky topbar. */
+  .chat-interface > .progress-bar-container {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    background: var(--bg-secondary);
   }
 
   .chat-mobile-topbar-brand {
