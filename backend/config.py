@@ -74,7 +74,7 @@ AGORA_MODEL_ID = os.getenv("AGORA_MODEL_ID", "agora/rag")
 AGORA_POLL_INTERVAL_SECONDS = max(0.0, _parse_float_env("AGORA_POLL_INTERVAL_SECONDS", 1.0))
 PEER_EVALUATION_TIMEOUT_SECONDS = max(
     1.0,
-    _parse_float_env("PEER_EVALUATION_TIMEOUT_SECONDS", 300.0),
+    _parse_float_env("PEER_EVALUATION_TIMEOUT_SECONDS", 180.0),
 )
 COUNCIL_PUBLIC_BASE_URL = (
     os.getenv("COUNCIL_PUBLIC_BASE_URL")
@@ -115,6 +115,20 @@ MODEL_ALIASES = {
 
 # Chairman model - synthesizes final response
 CHAIRMAN_MODEL = "google/gemini-3.1-pro-preview"
+
+# Fallback chairman used when the primary chairman fails to produce a Stage 3
+# answer after CHAIRMAN_FALLBACK_AFTER_ATTEMPTS consecutive empty responses.
+CHAIRMAN_FALLBACK_MODEL = os.getenv(
+    "CHAIRMAN_FALLBACK_MODEL",
+    "openai/gpt-5.4-mini",
+)
+try:
+    CHAIRMAN_FALLBACK_AFTER_ATTEMPTS = max(
+        1,
+        int(os.getenv("CHAIRMAN_FALLBACK_AFTER_ATTEMPTS", "2")),
+    )
+except ValueError:
+    CHAIRMAN_FALLBACK_AFTER_ATTEMPTS = 2
 
 # Default preferred models to preselect in the UI
 DEFAULT_PREFERRED_MODELS = [

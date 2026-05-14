@@ -140,6 +140,7 @@ export default function ChatInterface({
 }) {
   const [input, setInput] = useState('');
   const [copiedIndex, setCopiedIndex] = useState(null);
+  const [consultingPhraseIndex, setConsultingPhraseIndex] = useState(0);
   const messagesContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
@@ -190,6 +191,19 @@ export default function ChatInterface({
       }
     }
   }, [input, conversation?.id]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      setConsultingPhraseIndex(0);
+      return undefined;
+    }
+    const phrases = t('consultingPhrases');
+    if (!Array.isArray(phrases) || phrases.length <= 1) return undefined;
+    const intervalId = setInterval(() => {
+      setConsultingPhraseIndex((prev) => (prev + 1) % phrases.length);
+    }, 5000);
+    return () => clearInterval(intervalId);
+  }, [isLoading, t]);
 
   const handleCopyMarkdown = async (userQuestion, msg, index) => {
     try {
@@ -748,16 +762,28 @@ export default function ChatInterface({
           ))
         )}
 
-        {isLoading && (
-          <div className="loading-indicator">
-            <div className="spinner"></div>
-            <span>
-              {t('consulting')}
-              <span className="loading-indicator-percent"> {Math.round(progress)}%</span>
-            </span>
-            <div className="loading-warning">{t('keepTabOpen')}</div>
-          </div>
-        )}
+        {isLoading && (() => {
+          const phrases = t('consultingPhrases');
+          const phraseList = Array.isArray(phrases) && phrases.length > 0
+            ? phrases
+            : [t('consulting')];
+          const currentPhrase = phraseList[consultingPhraseIndex % phraseList.length];
+          return (
+            <div className="loading-indicator">
+              <div className="spinner"></div>
+              <span>
+                <span
+                  key={consultingPhraseIndex}
+                  className="loading-indicator-phrase"
+                >
+                  {currentPhrase}
+                </span>
+                <span className="loading-indicator-percent"> {Math.round(progress)}%</span>
+              </span>
+              <div className="loading-warning">{t('keepTabOpen')}</div>
+            </div>
+          );
+        })()}
 
         <div ref={messagesEndRef} />
       </div>

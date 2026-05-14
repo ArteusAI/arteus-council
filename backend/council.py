@@ -14,6 +14,8 @@ from .agora_eval_files import (
 )
 from .config import (
     BASE_SYSTEM_PROMPT,
+    CHAIRMAN_FALLBACK_AFTER_ATTEMPTS,
+    CHAIRMAN_FALLBACK_MODEL,
     CHAIRMAN_MODEL,
     COUNCIL_MODELS,
     LEADS_CHAIRMAN_MODEL,
@@ -42,6 +44,36 @@ def language_instruction(language: str | None) -> str:
         return ""
     name = LANGUAGE_NAMES.get(language.lower(), "the user's language")
     return f" Please write your answer in {name}."
+
+
+def build_language_directive(language: str | None) -> str:
+    """Return a unified language-selection block used by every stage.
+
+    The URL / site-content detection rule always takes priority so that pasting
+    a foreign-language URL on, e.g., an English UI still produces a report in
+    the site's language. The optional user-selected language is only a tiebreaker
+    when the question itself is rich enough to determine intent.
+    """
+    user_preference = ""
+    if language:
+        name = LANGUAGE_NAMES.get(language.lower(), "the user's language")
+        user_preference = (
+            f"\n- The user's interface language is {name}. Use it only when the "
+            "rules above do not clearly dictate another language."
+        )
+    return (
+        "\n\nLANGUAGE SELECTION (applies to your entire answer):\n"
+        "- If the user's question is essentially just a URL, or its text is too "
+        "short to determine the language, detect the predominant language of the "
+        "scraped website/page content provided in the prompt (look inside "
+        "<link_content>...</link_content> blocks) and respond in that language.\n"
+        "- Otherwise, respond in the same language as the user's question.\n"
+        "- If neither the question nor the scraped content gives a clear "
+        "language signal: when the domain ends with .ru respond in Russian, "
+        "otherwise respond in English."
+        f"{user_preference}\n"
+        "- Never mix languages within a single answer."
+    )
 
 
 def is_agora_model(model: str) -> bool:
@@ -75,17 +107,7 @@ def build_stage1_prompt(
         "\n\nPlease provide a comprehensive, detailed answer covering all "
         "nuances and aspects of the question."
     )
-    if language:
-        language_note = language_instruction(language)
-    else:
-        language_note = (
-            "\n\nLANGUAGE SELECTION:\n"
-            "- Respond in the same language as the user's question.\n"
-            "- If the question is just a URL or too short to detect the language, "
-            "respond in the predominant language of the provided website/page content.\n"
-            "- If the website content language cannot be determined, fall back to "
-            "Russian for .ru domains and English otherwise."
-        )
+    language_note = build_language_directive(language)
     if base_system_prompt:
         return (
             f"CONTEXT:\n{base_system_prompt}\n\nQUESTION: {user_query}"
@@ -549,7 +571,7 @@ Your task:
 4. Do NOT mention rankings, reviews, or that this is a revision.
 5. Output only the revised answer, with no preamble.
 
-Return a stronger final answer to the original question.{language_instruction(language)}"""
+Return a stronger final answer to the original question.{build_language_directive(language)}"""
 
 
 async def stage1_collect_responses(
@@ -871,11 +893,7 @@ IMPORTANT FORMATTING RULES:
 - Never output bare URLs - always wrap them in Markdown link syntax
 - For demo/video links, use descriptive text like "Watch demo", "View demonstration", etc.
 
-LANGUAGE SELECTION:
-- Respond in the same language as the user's question
-- If the question contains only a URL with no text, or its text is too short to determine the language:
-  * Detect the predominant language of the scraped website/page content provided above and respond in that language
-  * If website content is unavailable or its language cannot be determined: when the domain ends with .ru → respond in Russian, otherwise → respond in English
+{language_directive.lstrip()}
 
 CLOSING SECTION:
 After providing your comprehensive answer, conclude with the following (translate to the same language as your response).
@@ -899,33 +917,47 @@ Russian version:
 
 Provide a clear, well-reasoned final answer that represents the council's collective wisdom:"""
 
-    if language_note:
-        target_language = LANGUAGE_NAMES.get(language.lower(), "the user's language")
-        chairman_prompt += f"\n\nRespond in {target_language}."
-
     messages = [{"role": "user", "content": chairman_prompt}]
     final_content = ""
+    current_model = chairman_to_use
+    switched_to_fallback = False
+
     for attempt in range(1, FINAL_SYNTHESIS_MAX_ATTEMPTS + 1):
-        response = await query_model(chairman_to_use, messages, temperature=0.7)
+        if (
+            not switched_to_fallback
+            and attempt > CHAIRMAN_FALLBACK_AFTER_ATTEMPTS
+            and CHAIRMAN_FALLBACK_MODEL
+            and CHAIRMAN_FALLBACK_MODEL != current_model
+        ):
+            logger.warning(
+                "[%s] Switching Stage 3 chairman to fallback %s after %s failed attempts",
+                current_model,
+                CHAIRMAN_FALLBACK_MODEL,
+                CHAIRMAN_FALLBACK_AFTER_ATTEMPTS,
+            )
+            current_model = CHAIRMAN_FALLBACK_MODEL
+            switched_to_fallback = True
+
+        response = await query_model(current_model, messages, temperature=0.7)
         final_content = str((response or {}).get("content") or "").strip()
         if final_content:
             break
 
         logger.warning(
             "[%s] Empty final synthesis response on attempt %s/%s",
-            chairman_to_use,
+            current_model,
             attempt,
             FINAL_SYNTHESIS_MAX_ATTEMPTS,
         )
 
     if not final_content:
         return {
-            "model": chairman_to_use,
+            "model": current_model,
             "response": "Error: Unable to generate final synthesis.",
         }
 
     return {
-        "model": chairman_to_use,
+        "model": current_model,
         "response": final_content,
     }
 
