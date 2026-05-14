@@ -862,7 +862,7 @@ async def stage3_synthesize_final(
                 "No round-2 rankings were successfully returned.\n\n"
             )
 
-    language_note = language_instruction(language)
+    language_note = build_language_directive(language)
     personalization = build_personalization_section(personal_prompt)
     context_block = ""
     if base_system_prompt:
@@ -893,7 +893,7 @@ IMPORTANT FORMATTING RULES:
 - Never output bare URLs - always wrap them in Markdown link syntax
 - For demo/video links, use descriptive text like "Watch demo", "View demonstration", etc.
 
-{language_directive.lstrip()}
+{language_note.lstrip()}
 
 CLOSING SECTION:
 After providing your comprehensive answer, conclude with the following (translate to the same language as your response).
