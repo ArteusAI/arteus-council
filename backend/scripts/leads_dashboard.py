@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 from io import BytesIO
+import re
 import secrets
 import os
 import sys
@@ -36,9 +37,40 @@ app = FastAPI(title="Leads Dashboard", docs_url=None, redoc_url=None)
 client: AsyncIOMotorClient | None = None
 security = HTTPBasic()
 
-BASE_PATH = "/council_dashboard"
-LEADS_DASHBOARD_USERNAME = "admin"
-LEADS_DASHBOARD_PASSWORD = "arteus-leads"
+
+def _normalize_base_path(raw: str) -> str:
+    """Return a base path starting with '/', without trailing slash and without duplicate slashes."""
+    cleaned = (raw or "/leads").strip()
+    if not cleaned.startswith("/"):
+        cleaned = "/" + cleaned
+    while "//" in cleaned:
+        cleaned = cleaned.replace("//", "/")
+    if len(cleaned) > 1 and cleaned.endswith("/"):
+        cleaned = cleaned.rstrip("/")
+    return cleaned
+
+
+BASE_PATH = _normalize_base_path(os.getenv("LEADS_DASHBOARD_BASE_PATH", "/leads"))
+LEADS_DASHBOARD_USERNAME = os.getenv("LEADS_DASHBOARD_USERNAME", "admin")
+LEADS_DASHBOARD_PASSWORD = os.getenv("LEADS_DASHBOARD_PASSWORD", "arteus-leads")
+
+URL_PATTERN = re.compile(
+    r'(?:https?://)?(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:/[^\s<>\[\]()"\',;]*)?(?<![.,;:!?\)])',
+    re.IGNORECASE,
+)
+
+
+def extract_first_url(text: str) -> str:
+    """Return the first URL found in text with an https:// prefix if missing."""
+    if not text:
+        return ""
+    match = URL_PATTERN.search(text)
+    if not match:
+        return ""
+    url = match.group(0)
+    if not url.startswith(("http://", "https://")):
+        url = f"https://{url}"
+    return url
 
 
 def get_db():
@@ -77,11 +109,9 @@ def date_key(value: Any) -> str:
 
 
 def contact_of(lead: dict[str, Any]) -> str:
-    telegram = lead.get("telegram")
-    email = lead.get("email")
-    if telegram and email:
-        return f"{telegram} / {email}"
-    return telegram or email or "Без контакта"
+    parts = [lead.get("telegram"), lead.get("email"), lead.get("linkedin")]
+    contacts = [str(value).strip() for value in parts if value and str(value).strip()]
+    return " / ".join(contacts) if contacts else "Без контакта"
 
 
 def excluded_telegram_filter() -> dict[str, Any]:
@@ -115,6 +145,7 @@ async def conversation_stats_by_session(session_ids: list[str]) -> dict[str, dic
                 "deleted_at": {"$exists": False},
             }
         },
+        {"$sort": {"created_at": 1}},
         {
             "$group": {
                 "_id": "$session_id",
@@ -129,16 +160,25 @@ async def conversation_stats_by_session(session_ids: list[str]) -> dict[str, dic
                     }
                 },
                 "last_conversation_at": {"$max": "$created_at"},
+                "first_messages": {"$first": "$messages"},
             }
         },
     ]
 
     stats: dict[str, dict[str, Any]] = {}
     async for row in db["conversations"].aggregate(pipeline):
+        first_url = ""
+        for message in row.get("first_messages") or []:
+            if message.get("role") != "user":
+                continue
+            first_url = extract_first_url(message.get("content", "") or "")
+            if first_url:
+                break
         stats[row["_id"]] = {
             "conversation_count": row.get("conversation_count", 0),
             "message_count": row.get("message_count", 0),
             "last_conversation_at": to_iso(row.get("last_conversation_at")),
+            "site_url": first_url,
         }
     return stats
 
@@ -175,6 +215,16 @@ def report_rows_from_leads(leads: list[dict[str, Any]]) -> list[dict[str, Any]]:
         else:
             registration_date = str(registration_date) if registration_date else ""
 
+        site_url = ""
+        for conversation in lead.get("conversations", []):
+            for message in conversation.get("messages", []):
+                if message.get("role") == "user":
+                    site_url = extract_first_url(message.get("content", "") or "")
+                    if site_url:
+                        break
+            if site_url:
+                break
+
         for conversation in lead.get("conversations", []):
             conversation_id = conversation.get("_id") or conversation.get("id") or ""
             asked_at = to_iso(conversation.get("created_at"))
@@ -198,6 +248,8 @@ def report_rows_from_leads(leads: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         {
                             "email": lead.get("email", ""),
                             "telegram": lead.get("telegram", ""),
+                            "linkedin": lead.get("linkedin", ""),
+                            "site_url": site_url,
                             "registration_date": registration_date,
                             "template_id": lead.get("template_id", "default"),
                             "question": question,
@@ -218,6 +270,8 @@ def create_xlsx_bytes(rows: list[dict[str, Any]]) -> bytes:
     headers = [
         "Lead Email",
         "Telegram",
+        "LinkedIn",
+        "Site",
         "Registration Date",
         "Template",
         "Question",
@@ -228,12 +282,14 @@ def create_xlsx_bytes(rows: list[dict[str, Any]]) -> bytes:
     column_widths = {
         "A": 25,
         "B": 20,
-        "C": 20,
-        "D": 15,
-        "E": 50,
-        "F": 50,
-        "G": 38,
-        "H": 20,
+        "C": 30,
+        "D": 35,
+        "E": 20,
+        "F": 15,
+        "G": 50,
+        "H": 50,
+        "I": 38,
+        "J": 20,
     }
 
     for column, width in column_widths.items():
@@ -249,6 +305,8 @@ def create_xlsx_bytes(rows: list[dict[str, Any]]) -> bytes:
         values = [
             row_data.get("email", ""),
             row_data.get("telegram", ""),
+            row_data.get("linkedin", ""),
+            row_data.get("site_url", ""),
             row_data.get("registration_date", ""),
             row_data.get("template_id", ""),
             row_data.get("question", ""),
@@ -274,7 +332,7 @@ async def root_redirect() -> RedirectResponse:
 @app.get(f"{BASE_PATH}/", response_class=HTMLResponse)
 async def index(credentials: HTTPBasicCredentials = Depends(security)) -> str:
     require_basic_auth(credentials)
-    return DASHBOARD_HTML
+    return DASHBOARD_HTML.replace("__BASE_PATH__", BASE_PATH)
 
 
 @app.get(f"{BASE_PATH}/api/leads")
@@ -329,11 +387,13 @@ async def leads_api(
                 "contact": contact_of(lead),
                 "email": lead.get("email") or "",
                 "telegram": lead.get("telegram") or "",
+                "linkedin": lead.get("linkedin") or "",
                 "template_id": lead.get("template_id", "default"),
                 "created_at": to_iso(lead.get("created_at")),
                 "conversation_count": conversation_count,
                 "message_count": message_count,
                 "last_conversation_at": stats.get("last_conversation_at", ""),
+                "site_url": stats.get("site_url", ""),
             }
         )
 
@@ -380,6 +440,7 @@ async def lead_conversations_api(
             "contact": contact_of(lead),
             "email": lead.get("email") or "",
             "telegram": lead.get("telegram") or "",
+            "linkedin": lead.get("linkedin") or "",
             "template_id": lead.get("template_id", "default"),
             "created_at": to_iso(lead.get("created_at")),
             "conversations": await conversations_for_session(session_id),
@@ -557,6 +618,15 @@ DASHBOARD_HTML = """<!doctype html>
     th { color: var(--muted); font-size: 12px; font-weight: 700; background: #fbfcfe; }
     .contact { font-weight: 680; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--muted); }
+    .site-cell { max-width: 260px; }
+    .site-link {
+      color: var(--accent);
+      text-decoration: none;
+      word-break: break-all;
+      display: inline-block;
+      max-width: 100%;
+    }
+    .site-link:hover { text-decoration: underline; }
     .empty, .error { padding: 20px; color: var(--muted); }
     .error { color: var(--warn); }
     .details-cell { background: #fbfcfe; padding: 0; }
@@ -648,6 +718,7 @@ DASHBOARD_HTML = """<!doctype html>
         <thead>
           <tr>
             <th>Контакт</th>
+            <th>Сайт</th>
             <th>Создан</th>
             <th>Диалоги</th>
             <th>Сообщения</th>
@@ -681,10 +752,16 @@ DASHBOARD_HTML = """<!doctype html>
       }).join('');
     }
 
+    function renderSite(url) {
+      if (!url) return '<span class="sub">-</span>';
+      const safe = escapeHtml(url);
+      return `<a class="site-link" href="${safe}" target="_blank" rel="noopener noreferrer">${safe}</a>`;
+    }
+
     function renderRows(leads) {
       latestLeads = leads;
       if (!leads.length) {
-        $('rows').innerHTML = '<tr><td class="empty" colspan="7">За выбранный период лидов нет</td></tr>';
+        $('rows').innerHTML = '<tr><td class="empty" colspan="8">За выбранный период лидов нет</td></tr>';
         return;
       }
       $('rows').innerHTML = leads.map((lead) => {
@@ -693,6 +770,7 @@ DASHBOARD_HTML = """<!doctype html>
         const mainRow = `
         <tr>
           <td><div class="contact">${escapeHtml(lead.contact)}</div><div class="mono">${escapeHtml(lead.template_id)}</div></td>
+          <td class="site-cell">${renderSite(lead.site_url)}</td>
           <td>${formatDate(lead.created_at)}</td>
           <td>${lead.conversation_count}</td>
           <td>${lead.message_count}</td>
@@ -704,7 +782,7 @@ DASHBOARD_HTML = """<!doctype html>
         if (!isExpanded) return mainRow;
         return `${mainRow}
           <tr>
-            <td class="details-cell" colspan="7">
+            <td class="details-cell" colspan="8">
               <div class="details-panel" id="details-${escapeAttr(lead.session_id)}">${renderDetails(lead.session_id)}</div>
             </td>
           </tr>
@@ -783,7 +861,7 @@ DASHBOARD_HTML = """<!doctype html>
 
     async function fetchConversations(sessionId) {
       try {
-        const res = await fetch(`/council_dashboard/api/leads/${encodeURIComponent(sessionId)}/conversations`);
+        const res = await fetch(`__BASE_PATH__/api/leads/${encodeURIComponent(sessionId)}/conversations`);
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
         const data = await res.json();
         conversationCache.set(sessionId, { status: 'loaded', data });
@@ -795,14 +873,14 @@ DASHBOARD_HTML = """<!doctype html>
 
     function exportReport() {
       const days = $('days').value;
-      window.location.href = `/council_dashboard/api/leads/export?days=${encodeURIComponent(days)}`;
+      window.location.href = `__BASE_PATH__/api/leads/export?days=${encodeURIComponent(days)}`;
     }
 
     async function load() {
       const days = $('days').value;
       $('meta').textContent = 'Загрузка данных...';
       try {
-        const res = await fetch(`/council_dashboard/api/leads?days=${days}&limit=300`);
+        const res = await fetch(`__BASE_PATH__/api/leads?days=${days}&limit=300`);
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
         const data = await res.json();
         $('total').textContent = data.total_count;
@@ -817,7 +895,7 @@ DASHBOARD_HTML = """<!doctype html>
         renderRows(data.leads);
       } catch (error) {
         $('meta').textContent = 'Ошибка загрузки';
-        $('rows').innerHTML = `<tr><td class="error" colspan="7">${escapeHtml(error.message)}</td></tr>`;
+        $('rows').innerHTML = `<tr><td class="error" colspan="8">${escapeHtml(error.message)}</td></tr>`;
       }
     }
 
@@ -848,4 +926,5 @@ if __name__ == "__main__":
     import uvicorn
 
     args = parse_args()
-    uvicorn.run("leads_dashboard:app", host=args.host, port=args.port, reload=args.reload)
+    target = "leads_dashboard:app" if args.reload else app
+    uvicorn.run(target, host=args.host, port=args.port, reload=args.reload)

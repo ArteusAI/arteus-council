@@ -75,12 +75,23 @@ def build_stage1_prompt(
         "\n\nPlease provide a comprehensive, detailed answer covering all "
         "nuances and aspects of the question."
     )
+    if language:
+        language_note = language_instruction(language)
+    else:
+        language_note = (
+            "\n\nLANGUAGE SELECTION:\n"
+            "- Respond in the same language as the user's question.\n"
+            "- If the question is just a URL or too short to detect the language, "
+            "respond in the predominant language of the provided website/page content.\n"
+            "- If the website content language cannot be determined, fall back to "
+            "Russian for .ru domains and English otherwise."
+        )
     if base_system_prompt:
         return (
             f"CONTEXT:\n{base_system_prompt}\n\nQUESTION: {user_query}"
-            f"{detailed_instruction}{language_instruction(language)}"
+            f"{detailed_instruction}{language_note}"
         )
-    return f"{user_query}{detailed_instruction}{language_instruction(language)}"
+    return f"{user_query}{detailed_instruction}{language_note}"
 
 
 def build_label_to_model(stage1_results: List[Dict[str, Any]]) -> Dict[str, str]:
@@ -862,9 +873,9 @@ IMPORTANT FORMATTING RULES:
 
 LANGUAGE SELECTION:
 - Respond in the same language as the user's question
-- If the question contains only a URL with no text:
-  * If domain ends with .ru → respond in Russian
-  * Otherwise → respond in English
+- If the question contains only a URL with no text, or its text is too short to determine the language:
+  * Detect the predominant language of the scraped website/page content provided above and respond in that language
+  * If website content is unavailable or its language cannot be determined: when the domain ends with .ru → respond in Russian, otherwise → respond in English
 
 CLOSING SECTION:
 After providing your comprehensive answer, conclude with the following (translate to the same language as your response).
@@ -876,7 +887,7 @@ Use proper markdown formatting with line breaks between each line:
 
 **We will prove to you that AI already works.**
 
-**Contact us on Telegram: [@Leningrad84](https://t.me/Leningrad84)**
+**Contact us on Telegram: [@Leningrad84](https://t.me/Leningrad84) or [LinkedIn](https://www.linkedin.com/in/roman-nester-97b24755)**
 
 Russian version:
 
@@ -884,7 +895,7 @@ Russian version:
 
 **Мы докажем вам, что AI уже работает.**
 
-**Для связи Telegram: [@Leningrad84](https://t.me/Leningrad84)**
+**Для связи Telegram: [@Leningrad84](https://t.me/Leningrad84) или [LinkedIn](https://www.linkedin.com/in/roman-nester-97b24755)**
 
 Provide a clear, well-reasoned final answer that represents the council's collective wisdom:"""
 

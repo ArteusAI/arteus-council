@@ -73,12 +73,10 @@ function App() {
   }, [currentConversationId]);
 
   useEffect(() => {
-    console.log('[leadsMode] state changed to:', leadsMode);
     leadsModeRef.current = leadsMode;
   }, [leadsMode]);
 
   useEffect(() => {
-    console.log('[leadUser] state changed to:', leadUser ? { session_id: leadUser.session_id, email: leadUser.email } : null);
     leadUserRef.current = leadUser;
   }, [leadUser]);
 
@@ -174,24 +172,12 @@ function App() {
       // First, load config to determine mode
       try {
         const config = await api.getConfig();
-        console.log('[config] loaded:', config);
         setConferenceMode(config.END_CONFERENCE_MODE || false);
         setLeadsMode(config.leads_mode || false);
         setFixedIdentityId(config.fixed_identity_id || null);
         setDisableRussian(Boolean(config.disable_russian_language));
-        
-        // Log conference mode activation
-        if (config.END_CONFERENCE_MODE) {
-          if (config.conference_mode_reason === 'api_limits_exhausted') {
-            console.warn('⚠️ HASTA LA VISTA!');
-          } else if (config.conference_mode_reason === 'manual') {
-            console.info('ℹ️ Conference mode activated manually');
-          } else {
-            console.info('ℹ️ Conference mode activated');
-          }
-        }
       } catch (error) {
-        console.warn('Config load failed, assuming normal mode:', error);
+        console.error('Config load failed, assuming normal mode:', error);
         setConferenceMode(false);
         setLeadsMode(false);
       } finally {
@@ -273,11 +259,9 @@ function App() {
   const loadConversations = useCallback(async () => {
     try {
       const isLeads = Boolean(leadsModeRef.current || leadUserRef.current);
-      console.log('[loadConversations] isLeads=', isLeads, 'leadsModeRef=', leadsModeRef.current, 'leadUser=', !!leadUserRef.current);
       const convs = isLeads
         ? await api.listLeadsConversations()
         : await api.listConversations();
-      console.log('[loadConversations] received', convs.length, 'conversations');
       setConversations(convs);
 
       // Validate currentConversationId if it exists
@@ -438,19 +422,15 @@ function App() {
 
     try {
       const useLeads = Boolean(leadsModeRef.current || leadUserRef.current);
-      console.log('[loadConversation] id=', id, 'useLeads=', useLeads, 'leadsModeRef=', leadsModeRef.current, 'leadUser=', !!leadUserRef.current);
       let conv;
       try {
         conv = useLeads
           ? await api.getLeadsConversation(id)
           : await api.getConversation(id);
-        console.log('[loadConversation] OK primary endpoint, messages=', conv?.messages?.length);
       } catch (primaryError) {
-        console.warn('[loadConversation] primary failed, trying fallback. Error:', primaryError);
         conv = useLeads
           ? await api.getConversation(id)
           : await api.getLeadsConversation(id);
-        console.log('[loadConversation] OK fallback endpoint, messages=', conv?.messages?.length);
       }
       if (conversationLoadRequestRef.current === requestId) {
         setCurrentConversation(conv);
@@ -978,8 +958,6 @@ function App() {
         ? null  // In leads mode, backend uses fixed identity
         : ((baseSystemPromptId === 'custom' && !baseSystemPrompt.trim()) ? null : baseSystemPrompt);
 
-      // Send message with streaming (use appropriate API based on mode)
-      console.log('[handleSendMessage] leadsMode=', leadsMode, 'leadUser=', !!leadUser, '→ using', leadsMode ? 'LEADS stream' : 'NORMAL stream');
       const streamMethod = leadsMode ? api.sendLeadsMessageStream : api.sendMessageStream;
       const streamArgs = leadsMode
         ? [streamConversationId, content, selectedModels, chairmanModel, language]
@@ -1255,7 +1233,6 @@ function App() {
             break;
 
           case 'complete':
-            console.log('[stream] complete event for', streamConversationId, 'leadsModeRef=', leadsModeRef.current, 'leadUser=', !!leadUserRef.current);
             setConversationJobStatus(streamConversationId, null);
             loadConversations();
             activeStreamConversationRef.current = null;
@@ -1285,7 +1262,7 @@ function App() {
             break;
 
           default:
-            console.log('Unknown event type:', eventType);
+            break;
         }
         },
         abortController.signal

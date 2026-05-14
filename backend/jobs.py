@@ -6,10 +6,14 @@ import asyncio
 import copy
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from .config import COUNCIL_MODELS
+from .config import (
+    COUNCIL_MODELS,
+    LEADS_CHAIRMAN_MODEL,
+    LEADS_FIXED_IDENTITY_ID,
+)
 from .council import (
     build_label_to_model,
     build_round_metadata,
@@ -24,7 +28,8 @@ from .council import (
     stage3_synthesize_final,
 )
 from .firecrawl import extract_urls, process_message_links
-from .job_storage import JobStorage, LocalJobStorage
+from . import leads_storage
+from .job_storage import JobStorage, LeadsJobStorage, LocalJobStorage
 
 logger = logging.getLogger("llm-council.jobs")
 
@@ -415,6 +420,253 @@ class CouncilJob:
             )
             self._mark_failed(str(exc))
 
+    def _build_cache_lookup(
+        self,
+        content: str,
+        models_to_use: Optional[List[str]],
+        chairman_to_use: Optional[str],
+        language: Optional[str],
+        enable_second_round: bool,
+    ) -> Optional[Tuple[str, str]]:
+        """Return (cache_key, normalized_url) when leads cache is applicable."""
+        if not isinstance(self.storage, LeadsJobStorage):
+            return None
+        if not leads_storage.CACHE_ENABLED:
+            return None
+        urls = extract_urls(content or "")
+        # Only cache the canonical "one URL" lead flow to keep hit rate predictable.
+        if len(urls) != 1:
+            return None
+        normalized = leads_storage.normalize_url(urls[0])
+        models = list(models_to_use or COUNCIL_MODELS)
+        chairman = chairman_to_use or LEADS_CHAIRMAN_MODEL
+        identity_id = LEADS_FIXED_IDENTITY_ID or ""
+        cache_key = leads_storage.build_cache_key(
+            url=normalized,
+            identity_id=identity_id,
+            language=language,
+            models=models,
+            chairman_model=chairman,
+            personal_prompt=self.personal_prompt or "",
+            enable_second_round=enable_second_round,
+        )
+        return cache_key, normalized
+
+    async def _replay_from_cache(
+        self,
+        cached: Dict[str, Any],
+        *,
+        title_task: Optional[asyncio.Task],
+    ) -> None:
+        """Stream a cached council result via the standard SSE event sequence."""
+        stage1 = cached.get("stage1") or []
+        stage2 = cached.get("stage2") or []
+        stage3 = cached.get("stage3") or {}
+        metadata = dict(cached.get("metadata") or {})
+        rounds = cached.get("rounds") or []
+        link_metadata = cached.get("scrapedLinks") or []
+
+        metadata["from_cache"] = True
+        metadata["cached_at"] = datetime.now(timezone.utc).isoformat()
+
+        if link_metadata:
+            self._set_stage("scraping")
+            self.assistant_message["loading"]["scraping"] = True
+            urls = [link.get("url") for link in link_metadata if link.get("url")]
+            self.publish({"type": "scraping_start", "data": {"urls": urls}})
+            self.assistant_message["loading"]["scraping"] = False
+            self.assistant_message["scrapedLinks"] = link_metadata
+            self.publish(
+                {"type": "scraping_complete", "data": {"links": link_metadata}}
+            )
+
+        self._set_stage("stage1")
+        stage1_models = [item.get("model") for item in stage1 if item.get("model")]
+        self.assistant_message["loading"]["stage1"] = True
+        self.assistant_message["progress"]["stage1"] = {
+            "completed": [],
+            "total": stage1_models,
+        }
+        self.publish({"type": "stage1_start", "data": {"models": stage1_models}})
+        completed_stage1: List[str] = []
+        for model_name in stage1_models:
+            completed_stage1.append(model_name)
+            self.assistant_message["progress"]["stage1"]["completed"] = list(
+                completed_stage1
+            )
+            self.publish(
+                {"type": "stage1_model_complete", "data": {"model": model_name}}
+            )
+            await asyncio.sleep(0)
+        self.assistant_message["stage1"] = stage1
+        self.assistant_message["loading"]["stage1"] = False
+        self.publish({"type": "stage1_complete", "data": stage1})
+
+        self._set_stage("stage2")
+        stage2_models = [item.get("model") for item in stage2 if item.get("model")]
+        self.assistant_message["loading"]["stage2"] = True
+        self.assistant_message["progress"]["stage2"] = {
+            "completed": [],
+            "total": stage2_models,
+        }
+        self.publish({"type": "stage2_start", "data": {"models": stage2_models}})
+        completed_stage2: List[str] = []
+        for model_name in stage2_models:
+            completed_stage2.append(model_name)
+            self.assistant_message["progress"]["stage2"]["completed"] = list(
+                completed_stage2
+            )
+            self.publish(
+                {"type": "stage2_model_complete", "data": {"model": model_name}}
+            )
+            await asyncio.sleep(0)
+        stage2_metadata = {
+            **metadata,
+            "second_round_enabled": metadata.get("second_round_enabled", False),
+        }
+        self.assistant_message["stage2"] = stage2
+        self.assistant_message["metadata"] = stage2_metadata
+        self.assistant_message["rounds"] = rounds
+        self.assistant_message["loading"]["stage2"] = False
+        self.publish(
+            {
+                "type": "stage2_complete",
+                "data": stage2,
+                "metadata": stage2_metadata,
+            }
+        )
+
+        round2 = next(
+            (round_payload for round_payload in rounds if round_payload.get("round") == 2),
+            None,
+        )
+        if round2:
+            finalists = metadata.get("round2_finalists") or [
+                item.get("model")
+                for item in round2.get("stage1") or []
+                if item.get("model")
+            ]
+            self._set_stage("round2_stage1")
+            self.assistant_message["loading"]["round2Stage1"] = True
+            self.assistant_message["progress"]["round2Stage1"] = {
+                "completed": [],
+                "total": finalists,
+            }
+            self.publish(
+                {
+                    "type": "round2_stage1_start",
+                    "data": {"models": finalists, "finalists": finalists},
+                }
+            )
+            for model_name in finalists:
+                self.assistant_message["progress"]["round2Stage1"]["completed"].append(
+                    model_name
+                )
+                self.publish(
+                    {
+                        "type": "round2_stage1_model_complete",
+                        "data": {"model": model_name},
+                    }
+                )
+                await asyncio.sleep(0)
+            self.assistant_message["loading"]["round2Stage1"] = False
+            self.publish(
+                {
+                    "type": "round2_stage1_complete",
+                    "data": round2.get("stage1") or [],
+                    "metadata": {"finalists": finalists},
+                }
+            )
+
+            round2_stage2 = round2.get("stage2") or []
+            round2_ranking_models = [
+                item.get("model") for item in round2_stage2 if item.get("model")
+            ]
+            if round2_ranking_models:
+                self._set_stage("round2_stage2")
+                self.assistant_message["loading"]["round2Stage2"] = True
+                self.assistant_message["progress"]["round2Stage2"] = {
+                    "completed": [],
+                    "total": round2_ranking_models,
+                }
+                self.publish(
+                    {
+                        "type": "round2_stage2_start",
+                        "data": {
+                            "models": round2_ranking_models,
+                            "finalists": finalists,
+                        },
+                    }
+                )
+                for model_name in round2_ranking_models:
+                    self.assistant_message["progress"]["round2Stage2"][
+                        "completed"
+                    ].append(model_name)
+                    self.publish(
+                        {
+                            "type": "round2_stage2_model_complete",
+                            "data": {"model": model_name},
+                        }
+                    )
+                    await asyncio.sleep(0)
+                self.assistant_message["loading"]["round2Stage2"] = False
+                self.publish(
+                    {
+                        "type": "round2_stage2_complete",
+                        "data": round2_stage2,
+                        "metadata": round2.get("metadata"),
+                    }
+                )
+
+        self._set_stage("stage3")
+        self.assistant_message["loading"]["stage3"] = True
+        self.publish({"type": "stage3_start"})
+        await asyncio.sleep(0)
+        self.assistant_message["stage3"] = stage3
+        self.assistant_message["metadata"] = metadata
+        self.assistant_message["rounds"] = rounds
+        self.assistant_message["loading"]["stage3"] = False
+        self.publish(
+            {
+                "type": "stage3_complete",
+                "data": stage3,
+                "metadata": metadata,
+                "rounds": rounds,
+            }
+        )
+
+        if title_task is not None:
+            try:
+                title = await title_task
+                await self.storage.update_conversation_title(
+                    self.user_id, self.conversation_id, title
+                )
+                self.publish({"type": "title_complete", "data": {"title": title}})
+            except Exception as exc:
+                logger.warning(
+                    "[%s] title generation failed during cache replay: %s",
+                    self.conversation_id[:8],
+                    exc,
+                )
+
+        await self.storage.add_assistant_message(
+            self.user_id,
+            self.conversation_id,
+            stage1,
+            stage2,
+            stage3,
+            metadata=metadata,
+            rounds=rounds,
+            scraped_links=link_metadata,
+        )
+
+        logger.info(
+            "[%s] Job complete (cache replay)", self.conversation_id[:8]
+        )
+        self._mark_completed(
+            {"type": "complete", "metadata": metadata, "rounds": rounds}
+        )
+
     async def _run_workflow(self) -> None:
         request = self.request_payload
         models_to_use = request.get("models") or None
@@ -423,6 +675,8 @@ class CouncilJob:
         should_continue = bool(request.get("continue_last_assistant_round"))
         should_run_next_round = bool(request.get("enable_second_round")) or should_continue
         title_task: asyncio.Task | None = None
+        cache_key: Optional[str] = None
+        cache_url: Optional[str] = None
 
         if should_continue:
             conversation = await self.storage.get_conversation(
@@ -447,6 +701,32 @@ class CouncilJob:
             await self.storage.add_user_message(
                 self.user_id, self.conversation_id, content
             )
+
+            cache_lookup = self._build_cache_lookup(
+                content,
+                models_to_use,
+                chairman_to_use,
+                language,
+                bool(request.get("enable_second_round")),
+            )
+            if cache_lookup is not None:
+                cache_key, cache_url = cache_lookup
+                cached_payload = await leads_storage.get_cached_result(cache_key)
+                if cached_payload is not None:
+                    logger.info(
+                        "[%s] cache hit url=%s key=%s",
+                        self.conversation_id[:8],
+                        cache_url,
+                        cache_key[:12],
+                    )
+                    if self.is_first_message:
+                        title_task = asyncio.create_task(
+                            generate_conversation_title(content)
+                        )
+                    await self._replay_from_cache(
+                        cached_payload, title_task=title_task
+                    )
+                    return
 
             urls = extract_urls(content)
             enriched_content = content
@@ -784,6 +1064,20 @@ class CouncilJob:
                 metadata=metadata,
                 rounds=rounds,
                 scraped_links=link_metadata,
+            )
+
+        if cache_key is not None and cache_url is not None:
+            await leads_storage.save_cached_result(
+                cache_key,
+                cache_url,
+                {
+                    "stage1": stage1_results,
+                    "stage2": stage2_results,
+                    "stage3": stage3_result,
+                    "metadata": metadata,
+                    "rounds": rounds,
+                    "scrapedLinks": link_metadata,
+                },
             )
 
         logger.info("[%s] Job complete", self.conversation_id[:8])

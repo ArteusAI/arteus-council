@@ -14,6 +14,7 @@ from .config import (
     AGORA_MODEL_ID,
     AGORA_POLL_INTERVAL_SECONDS,
 )
+from .http_client import get_client
 
 logger = logging.getLogger("llm-council.agora")
 
@@ -308,59 +309,59 @@ async def query_model(
     deadline = time.monotonic() + timeout
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            session_id = await _create_session(
-                client,
-                headers,
-                conversation_context,
-                user_vars,
-                deadline,
-            )
-            if not session_id:
-                return None
+        client = get_client()
+        session_id = await _create_session(
+            client,
+            headers,
+            conversation_context,
+            user_vars,
+            deadline,
+        )
+        if not session_id:
+            return None
 
-            prediction = await _start_prediction(
+        prediction = await _start_prediction(
+            client,
+            headers,
+            prompt,
+            session_id,
+            user_vars,
+            deadline,
+        )
+        if not prediction:
+            return None
+
+        if _is_error_result(prediction):
+            logger.error("[%s] Prediction failed: %s", model, prediction)
+            return None
+
+        output = _extract_output(prediction)
+        if output is None:
+            prediction = await _poll_prediction(
                 client,
                 headers,
-                prompt,
-                session_id,
-                user_vars,
+                prediction["request_id"],
                 deadline,
             )
             if not prediction:
                 return None
-
-            if _is_error_result(prediction):
-                logger.error("[%s] Prediction failed: %s", model, prediction)
-                return None
-
             output = _extract_output(prediction)
-            if output is None:
-                prediction = await _poll_prediction(
-                    client,
-                    headers,
-                    prediction["request_id"],
-                    deadline,
-                )
-                if not prediction:
-                    return None
-                output = _extract_output(prediction)
 
-            if output is None:
-                logger.error("[%s] Agora response did not contain useful output: %s", model, prediction)
-                return None
+        if output is None:
+            logger.error("[%s] Agora response did not contain useful output: %s", model, prediction)
+            return None
 
-            duration = time.time() - start_time
-            logger.info("[%s] OK in %.1fs, response_len=%s", model, duration, len(output))
+        duration = time.time() - start_time
+        logger.info("[%s] OK in %.1fs, response_len=%s", model, duration, len(output))
 
-            result = {
-                "content": output,
-                "reasoning_details": "",
-            }
-            rag_context = _extract_rag_context(prediction)
-            if rag_context:
-                result["rag_context"] = rag_context
-            return result
+        result = {
+            "content": output,
+            "reasoning_details": "",
+        }
+        rag_context = _extract_rag_context(prediction)
+        if rag_context:
+            result["rag_context"] = rag_context
+        return result
 
     except _DeadlineExceeded:
         duration = time.time() - start_time

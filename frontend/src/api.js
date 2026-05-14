@@ -462,12 +462,9 @@ export const api = {
         }
       }
     } catch (streamError) {
-      // Handle abort gracefully
       if (streamError.name === 'AbortError') {
-        console.log('Request aborted');
         return;
       }
-      // Handle stream read errors (e.g., HTTP2 protocol errors, network issues)
       console.error('Stream read error:', streamError);
       onEvent('error', { 
         type: 'error', 
@@ -673,7 +670,6 @@ export const api = {
       }
     } catch (streamError) {
       if (streamError.name === 'AbortError') {
-        console.log('Request aborted');
         return;
       }
       console.error('Stream read error:', streamError);

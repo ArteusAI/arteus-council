@@ -3,7 +3,8 @@
 import json
 import os
 import re
-from datetime import datetime
+import tempfile
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from .config import DATA_DIR
@@ -45,16 +46,12 @@ def create_conversation(session_id: str, conversation_id: str) -> Dict[str, Any]
 
     conversation = {
         "id": conversation_id,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "title": "New Conversation",
         "messages": []
     }
 
-    # Save to file
-    path = get_conversation_path(session_id, conversation_id)
-    with open(path, 'w') as f:
-        json.dump(conversation, f, indent=2)
-
+    save_conversation(session_id, conversation)
     return conversation
 
 
@@ -80,17 +77,34 @@ def get_conversation(session_id: str, conversation_id: str) -> Optional[Dict[str
 
 def save_conversation(session_id: str, conversation: Dict[str, Any]):
     """
-    Save a conversation to storage.
+    Save a conversation atomically using a tmp file + os.replace.
 
-    Args:
-        session_id: Browser session identifier
-        conversation: Conversation dict to save
+    Avoids partial writes if the process is killed mid-write and prevents
+    readers from observing a half-written JSON.
     """
     ensure_session_dir(session_id)
 
-    path = get_conversation_path(session_id, conversation['id'])
-    with open(path, 'w') as f:
-        json.dump(conversation, f, indent=2)
+    final_path = get_conversation_path(session_id, conversation['id'])
+    session_dir = get_session_dir(session_id)
+
+    # Write to a tmp file in the same directory so os.replace is atomic on the
+    # same filesystem.
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f".{conversation['id']}.",
+        suffix=".tmp",
+        dir=session_dir,
+    )
+    try:
+        with os.fdopen(fd, 'w') as f:
+            json.dump(conversation, f, indent=2)
+        os.replace(tmp_path, final_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        raise
 
 
 def list_conversations(session_id: str) -> List[Dict[str, Any]]:

@@ -5,6 +5,7 @@ import time
 import logging
 from typing import List, Dict, Any, Optional
 from .config import OPENROUTER_API_KEY, OPENROUTER_API_URL
+from .http_client import get_client
 
 logger = logging.getLogger("llm-council.openrouter")
 
@@ -44,35 +45,36 @@ async def query_model(
 
     start_time = time.time()
     short_model = model.split('/')[-1] if '/' in model else model
-    
+
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
-                OPENROUTER_API_URL,
-                headers=headers,
-                json=payload
-            )
-            response.raise_for_status()
+        client = get_client()
+        response = await client.post(
+            OPENROUTER_API_URL,
+            headers=headers,
+            json=payload,
+            timeout=timeout,
+        )
+        response.raise_for_status()
 
-            data = response.json()
-            choices = data.get('choices', [])
-            if not choices:
-                logger.error(f"[{short_model}] No choices in response: {data}")
-                return None
-                
-            message = choices[0]['message']
-            
-            duration = time.time() - start_time
-            content = message.get('content') or ''
-            # Extract reasoning - OpenRouter can return it in different fields
-            reasoning = message.get('reasoning') or message.get('reasoning_content') or message.get('reasoning_details') or ''
-            
-            logger.info(f"[{short_model}] OK in {duration:.1f}s, response_len={len(content)}, reasoning_len={len(reasoning)}")
+        data = response.json()
+        choices = data.get('choices', [])
+        if not choices:
+            logger.error(f"[{short_model}] No choices in response: {data}")
+            return None
 
-            return {
-                'content': content,
-                'reasoning_details': reasoning
-            }
+        message = choices[0]['message']
+
+        duration = time.time() - start_time
+        content = message.get('content') or ''
+        # OpenRouter returns reasoning in any of these fields depending on the upstream model
+        reasoning = message.get('reasoning') or message.get('reasoning_content') or message.get('reasoning_details') or ''
+
+        logger.info(f"[{short_model}] OK in {duration:.1f}s, response_len={len(content)}, reasoning_len={len(reasoning)}")
+
+        return {
+            'content': content,
+            'reasoning_details': reasoning
+        }
 
     except httpx.TimeoutException:
         duration = time.time() - start_time
@@ -135,84 +137,110 @@ async def query_models_parallel(
     return {model: response for model, response in zip(models, responses)}
 
 
-async def check_api_limits() -> Dict[str, Any]:
-    """
-    Check OpenRouter API key limits and credit balance.
+_LIMITS_CACHE: Dict[str, Any] = {"data": None, "expires_at": 0.0}
+_LIMITS_CACHE_LOCK: Optional[Any] = None
+_LIMITS_TTL_OK_SECONDS = 60.0
+_LIMITS_TTL_EXHAUSTED_SECONDS = 10.0
 
-    Returns:
-        Dict with keys:
-            - 'exhausted': bool - whether limits are exhausted
-            - 'limit_remaining': float | None - credits remaining
-            - 'is_free_tier': bool - whether on free tier
-            - 'error': str | None - error message if check failed
-    """
+
+def _get_limits_lock():
+    """Lazily create the asyncio lock so the module is import-safe."""
+    global _LIMITS_CACHE_LOCK
+    if _LIMITS_CACHE_LOCK is None:
+        import asyncio
+        _LIMITS_CACHE_LOCK = asyncio.Lock()
+    return _LIMITS_CACHE_LOCK
+
+
+async def _fetch_api_limits() -> Dict[str, Any]:
+    """Perform the actual /api/v1/key request, no caching."""
     if not OPENROUTER_API_KEY:
         return {
             'exhausted': True,
             'limit_remaining': 0,
             'is_free_tier': False,
-            'error': 'No API key configured'
+            'error': 'No API key configured',
         }
 
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-    }
+    headers = {"Authorization": f"Bearer {OPENROUTER_API_KEY}"}
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
-                "https://openrouter.ai/api/v1/key",
-                headers=headers
-            )
-            
-            # Handle authentication errors specifically
-            if response.status_code == 401:
-                logger.warning("OpenRouter API key is invalid or not configured")
-                return {
-                    'exhausted': True,
-                    'limit_remaining': 0,
-                    'is_free_tier': False,
-                    'error': 'Invalid or missing API key'
-                }
-            
-            response.raise_for_status()
+        client = get_client()
+        response = await client.get(
+            "https://openrouter.ai/api/v1/key",
+            headers=headers,
+            timeout=10.0,
+        )
 
-            data = response.json()
-            key_data = data.get('data', {})
-            
-            limit_remaining = key_data.get('limit_remaining')
-            is_free_tier = key_data.get('is_free_tier', False)
-            
-            # Check if exhausted
-            exhausted = False
-            if limit_remaining is not None:
-                # If limit_remaining is 0 or negative, limits are exhausted
-                exhausted = limit_remaining <= 0
-            
-            logger.info(f"OpenRouter limits check: remaining={limit_remaining}, free_tier={is_free_tier}, exhausted={exhausted}")
-            
+        if response.status_code == 401:
+            logger.warning("OpenRouter API key is invalid or not configured")
             return {
-                'exhausted': exhausted,
-                'limit_remaining': limit_remaining,
-                'is_free_tier': is_free_tier,
-                'error': None
+                'exhausted': True,
+                'limit_remaining': 0,
+                'is_free_tier': False,
+                'error': 'Invalid or missing API key',
             }
+
+        response.raise_for_status()
+        data = response.json()
+        key_data = data.get('data', {})
+
+        limit_remaining = key_data.get('limit_remaining')
+        is_free_tier = key_data.get('is_free_tier', False)
+
+        exhausted = limit_remaining is not None and limit_remaining <= 0
+
+        logger.info(
+            "OpenRouter limits check: remaining=%s, free_tier=%s, exhausted=%s",
+            limit_remaining, is_free_tier, exhausted,
+        )
+
+        return {
+            'exhausted': exhausted,
+            'limit_remaining': limit_remaining,
+            'is_free_tier': is_free_tier,
+            'error': None,
+        }
 
     except httpx.HTTPStatusError as e:
         logger.error(f"Failed to check OpenRouter limits (HTTP {e.response.status_code}): {e}")
-        # Don't activate conference mode on API errors
         return {
             'exhausted': False,
             'limit_remaining': None,
             'is_free_tier': False,
-            'error': f'HTTP {e.response.status_code}'
+            'error': f'HTTP {e.response.status_code}',
         }
     except Exception as e:
         logger.error(f"Failed to check OpenRouter limits: {type(e).__name__}: {e}")
-        # Don't activate conference mode on check failure
         return {
             'exhausted': False,
             'limit_remaining': None,
             'is_free_tier': False,
-            'error': str(e)
+            'error': str(e),
         }
+
+
+async def check_api_limits(*, force_refresh: bool = False) -> Dict[str, Any]:
+    """
+    Check OpenRouter API key limits with a small TTL cache.
+
+    Cache TTL is 60s for healthy responses and 10s when limits are reported
+    as exhausted, so the conference-mode flag flips back quickly once topped up.
+    """
+    import time as _time
+
+    lock = _get_limits_lock()
+    async with lock:
+        cached = _LIMITS_CACHE["data"]
+        if (
+            not force_refresh
+            and cached is not None
+            and _time.monotonic() < _LIMITS_CACHE["expires_at"]
+        ):
+            return cached
+
+        fresh = await _fetch_api_limits()
+        ttl = _LIMITS_TTL_EXHAUSTED_SECONDS if fresh.get("exhausted") else _LIMITS_TTL_OK_SECONDS
+        _LIMITS_CACHE["data"] = fresh
+        _LIMITS_CACHE["expires_at"] = _time.monotonic() + ttl
+        return fresh

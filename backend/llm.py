@@ -1,6 +1,7 @@
 """Unified LLM dispatcher for routing requests to different providers."""
 
 import logging
+import os
 import asyncio
 from typing import List, Dict, Any, Optional
 from . import openrouter
@@ -9,6 +10,49 @@ from . import yandex_adapter
 from . import agora_adapter
 
 logger = logging.getLogger("llm-council.llm")
+
+
+def _int_env(name: str, default: int) -> int:
+    """Read an int env with fallback, logging invalid values."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning("Invalid %s=%r, using default %d", name, raw, default)
+        return default
+
+
+_LLM_MAX_INFLIGHT = max(1, _int_env("LLM_MAX_INFLIGHT", 100))
+_OPENROUTER_MAX_INFLIGHT = max(1, _int_env("OPENROUTER_MAX_INFLIGHT", _LLM_MAX_INFLIGHT))
+_YANDEX_MAX_INFLIGHT = max(1, _int_env("YANDEX_MAX_INFLIGHT", 16))
+_AGORA_MAX_INFLIGHT = max(1, _int_env("AGORA_MAX_INFLIGHT", 16))
+
+_llm_semaphore: Optional[asyncio.Semaphore] = None
+_provider_semaphores: Dict[str, Optional[asyncio.Semaphore]] = {
+    "openrouter": None,
+    "yandex": None,
+    "agora": None,
+}
+
+
+def _get_global_semaphore() -> asyncio.Semaphore:
+    """Lazily create the global semaphore bound to the running event loop."""
+    global _llm_semaphore
+    if _llm_semaphore is None:
+        _llm_semaphore = asyncio.Semaphore(_LLM_MAX_INFLIGHT)
+        logger.info("LLM global semaphore initialized (max_inflight=%d)", _LLM_MAX_INFLIGHT)
+    return _llm_semaphore
+
+
+def _get_provider_semaphore(provider: str, limit: int) -> asyncio.Semaphore:
+    """Return a provider-specific semaphore, created lazily."""
+    sem = _provider_semaphores.get(provider)
+    if sem is None:
+        sem = asyncio.Semaphore(limit)
+        _provider_semaphores[provider] = sem
+    return sem
 
 
 async def query_model(
@@ -29,14 +73,26 @@ async def query_model(
     Returns:
         Response dict with 'content' and optional 'reasoning_details', or None if failed
     """
+    # GigaChat is already serialized inside the adapter when
+    # GIGACHAT_PARALLEL_DISABLED is set, so we skip the global gate for it to
+    # avoid double-bottlenecking the rest of the council on the GigaChat lock.
     if model.startswith("gigachat/"):
         return await gigachat_adapter.query_model(model, messages, timeout)
-    elif model.startswith("yandex/"):
-        return await yandex_adapter.query_model(model, messages, timeout)
-    elif model.startswith("agora/"):
-        return await agora_adapter.query_model(model, messages, timeout)
-    else:
-        # Default to OpenRouter for everything else
+
+    global_sem = _get_global_semaphore()
+
+    if model.startswith("yandex/"):
+        provider_sem = _get_provider_semaphore("yandex", _YANDEX_MAX_INFLIGHT)
+        async with global_sem, provider_sem:
+            return await yandex_adapter.query_model(model, messages, timeout)
+
+    if model.startswith("agora/"):
+        provider_sem = _get_provider_semaphore("agora", _AGORA_MAX_INFLIGHT)
+        async with global_sem, provider_sem:
+            return await agora_adapter.query_model(model, messages, timeout)
+
+    provider_sem = _get_provider_semaphore("openrouter", _OPENROUTER_MAX_INFLIGHT)
+    async with global_sem, provider_sem:
         return await openrouter.query_model(model, messages, timeout, temperature)
 
 

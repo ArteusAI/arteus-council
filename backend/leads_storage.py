@@ -1,9 +1,13 @@
 """MongoDB-based storage for leads mode conversations."""
 
+import hashlib
+import json
 import logging
+import os
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Iterable, Optional
+from urllib.parse import urlparse, urlunparse
 
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -13,12 +17,28 @@ logger = logging.getLogger("llm-council.leads-storage")
 
 _mongo_client: Optional[AsyncIOMotorClient] = None
 
+CACHE_SCHEMA_VERSION = 1
+CACHE_TTL_DAYS = max(1, int(os.getenv("LEADS_CACHE_TTL_DAYS", "7")))
+CACHE_ENABLED = os.getenv("LEADS_CACHE_ENABLED", "true").lower() != "false"
+_CACHE_INDEX_READY = False
+
 
 def get_mongo_client() -> AsyncIOMotorClient:
-    """Get or create MongoDB client singleton for leads storage."""
+    """Get or create MongoDB client singleton for leads storage.
+
+    ``tz_aware=True`` ensures BSON Date values come back as timezone-aware
+    UTC datetimes so we can safely compare them with ``datetime.now(timezone.utc)``.
+    """
     global _mongo_client
     if _mongo_client is None:
-        _mongo_client = AsyncIOMotorClient(LEADS_MONGODB_URL)
+        _mongo_client = AsyncIOMotorClient(
+            LEADS_MONGODB_URL,
+            maxPoolSize=200,
+            minPoolSize=10,
+            serverSelectionTimeoutMS=10000,
+            tz_aware=True,
+            tzinfo=timezone.utc,
+        )
     return _mongo_client
 
 
@@ -410,3 +430,134 @@ async def set_lead_council_settings(
             }
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Council result cache (leads mode)
+# ---------------------------------------------------------------------------
+
+
+def normalize_url(url: str) -> str:
+    """Normalize a URL for stable cache keys.
+
+    Lowercases scheme/host, drops trailing slashes, drops fragment and
+    default ports. Query string is kept as-is because it usually carries
+    meaningful filters.
+    """
+    parsed = urlparse(url.strip())
+    scheme = (parsed.scheme or "https").lower()
+    netloc = (parsed.hostname or "").lower()
+    if parsed.port and not (
+        (scheme == "http" and parsed.port == 80)
+        or (scheme == "https" and parsed.port == 443)
+    ):
+        netloc = f"{netloc}:{parsed.port}"
+    path = parsed.path or "/"
+    if path != "/" and path.endswith("/"):
+        path = path.rstrip("/")
+    return urlunparse((scheme, netloc, path, "", parsed.query, ""))
+
+
+def build_cache_key(
+    *,
+    url: str,
+    identity_id: str,
+    language: Optional[str],
+    models: Iterable[str],
+    chairman_model: Optional[str],
+    personal_prompt: str,
+    enable_second_round: bool,
+) -> str:
+    """Build a stable sha256 cache key for the given council request."""
+    payload = {
+        "schema": CACHE_SCHEMA_VERSION,
+        "url": normalize_url(url),
+        "identity": identity_id or "",
+        "language": (language or "").lower(),
+        "models": sorted(models),
+        "chairman": chairman_model or "",
+        "personal_prompt_sha": hashlib.sha256(
+            (personal_prompt or "").encode("utf-8")
+        ).hexdigest(),
+        "second_round": bool(enable_second_round),
+    }
+    blob = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()
+
+
+async def ensure_cache_indexes() -> None:
+    """Create TTL index on council_cache. Idempotent and safe to call repeatedly."""
+    global _CACHE_INDEX_READY
+    if _CACHE_INDEX_READY:
+        return
+    try:
+        db = get_database()
+        await db["council_cache"].create_index(
+            "expires_at",
+            expireAfterSeconds=0,
+            name="council_cache_ttl",
+        )
+        _CACHE_INDEX_READY = True
+        logger.info("council_cache TTL index ensured")
+    except Exception as exc:
+        logger.warning("Failed to ensure council_cache TTL index: %s", exc)
+
+
+async def get_cached_result(cache_key: str) -> Optional[dict[str, Any]]:
+    """Return a cached council payload if it exists and is not expired."""
+    if not CACHE_ENABLED:
+        return None
+    try:
+        await ensure_cache_indexes()
+        db = get_database()
+        doc = await db["council_cache"].find_one({"_id": cache_key})
+        if doc is None:
+            logger.info("council_cache MISS key=%s (no doc)", cache_key[:12])
+            return None
+        expires_at = doc.get("expires_at")
+        if isinstance(expires_at, datetime):
+            # Defensive: older docs may be naive, treat them as UTC.
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at <= datetime.now(timezone.utc):
+                logger.info("council_cache MISS key=%s (expired)", cache_key[:12])
+                return None
+        logger.info(
+            "council_cache HIT key=%s url=%s",
+            cache_key[:12],
+            doc.get("url"),
+        )
+        return doc.get("payload")
+    except Exception as exc:
+        logger.warning("council_cache read failed for key=%s: %s", cache_key[:12], exc)
+        return None
+
+
+async def save_cached_result(
+    cache_key: str,
+    url: str,
+    payload: dict[str, Any],
+) -> None:
+    """Upsert a council payload into the cache with TTL ``CACHE_TTL_DAYS``."""
+    if not CACHE_ENABLED:
+        return
+    try:
+        await ensure_cache_indexes()
+        db = get_database()
+        now = datetime.now(timezone.utc)
+        await db["council_cache"].update_one(
+            {"_id": cache_key},
+            {
+                "$set": {
+                    "url": url,
+                    "payload": payload,
+                    "created_at": now,
+                    "expires_at": now + timedelta(days=CACHE_TTL_DAYS),
+                    "schema_version": CACHE_SCHEMA_VERSION,
+                }
+            },
+            upsert=True,
+        )
+        logger.info("council_cache wrote key=%s url=%s", cache_key[:12], url)
+    except Exception as exc:
+        logger.warning("council_cache write failed for key=%s: %s", cache_key[:12], exc)

@@ -1,5 +1,3 @@
-version: "3.9"
-
 # Leads Mode Docker Compose Configuration
 # Usage: docker compose -f docker-compose.leads.yml up --build
 
@@ -44,7 +42,25 @@ services:
         VITE_API_BASE: ${VITE_API_BASE:-http://${BACKEND_HOST:-localhost}:${BACKEND_PORT:-8001}}
         BASE_URL: ${BASE_URL:-${VITE_BASE_PATH:-/}}
         BACKEND_PORT: ${BACKEND_PORT:-8001}
+        LEADS_DASHBOARD_BASE_PATH: ${LEADS_DASHBOARD_BASE_PATH:-/leads}
     ports:
       - "${FRONTEND_PORT:-5173}:80"
     depends_on:
       - backend
+      - leads-dashboard
+
+  leads-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    command: ["uv", "run", "python", "backend/scripts/leads_dashboard.py", "--host", "0.0.0.0", "--port", "8090"]
+    expose:
+      - "8090"
+    environment:
+      - LEADS_MONGODB_URL=${LEADS_MONGODB_URL:-mongodb://167.235.102.202:27017}
+      - LEADS_MONGODB_DB_NAME=${LEADS_MONGODB_DB_NAME:-council_leads}
+      # Public path of the dashboard. Frontend nginx proxies this path to this service.
+      - LEADS_DASHBOARD_BASE_PATH=${LEADS_DASHBOARD_BASE_PATH:-/leads}
+      - LEADS_DASHBOARD_USERNAME=${LEADS_DASHBOARD_USERNAME:-admin}
+      - LEADS_DASHBOARD_PASSWORD=${LEADS_DASHBOARD_PASSWORD:-arteus-leads}
+      - LEADS_DASHBOARD_EXCLUDED_TELEGRAM=${LEADS_DASHBOARD_EXCLUDED_TELEGRAM:-}

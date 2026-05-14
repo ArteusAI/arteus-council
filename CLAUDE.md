@@ -132,6 +132,44 @@ Models are hardcoded in `backend/config.py`. Chairman can be same or different f
 3. **Ranking Parse Failures**: If models don't follow format, fallback regex extracts any "Response X" patterns in order
 4. **Missing Metadata**: Metadata is ephemeral (not persisted), only available in API responses
 
+## Scaling / Operational Notes
+
+The backend is designed for a single uvicorn worker (in-memory job manager,
+file-based JSON storage, shared httpx pool live inside the process). For
+~100 concurrent users the following tuning applies:
+
+### Required OS limits
+- `ulimit -n 65536` (sockets + tmp files). Set via systemd `LimitNOFILE=65536`
+  or docker `--ulimit nofile=65536:65536`.
+
+### Environment variables (concurrency knobs)
+- `LLM_MAX_INFLIGHT` (default 100) - global cap on simultaneous LLM requests.
+- `OPENROUTER_MAX_INFLIGHT` (default = `LLM_MAX_INFLIGHT`) - per-provider cap.
+- `YANDEX_MAX_INFLIGHT` (default 16).
+- `AGORA_MAX_INFLIGHT` (default 16).
+- `HTTP_MAX_CONNECTIONS` (default 300) - shared httpx pool.
+- `HTTP_MAX_KEEPALIVE` (default 100).
+- `HTTP_KEEPALIVE_EXPIRY_SECONDS` (default 60).
+- `LEADS_CACHE_ENABLED` (default true) - toggle Mongo result cache for leads.
+- `LEADS_CACHE_TTL_DAYS` (default 7) - TTL for cached council results.
+
+### Leads result cache (Mongo)
+When a lead submits a message containing exactly one URL in leads mode, the
+council result is cached by `sha256(normalized_url + identity + language +
+sorted(models) + chairman + sha256(personal_prompt) + enable_second_round +
+schema_version)` in the `council_cache` collection with a TTL index. Cache hits
+replay the standard SSE event sequence so the frontend animation is identical
+to a fresh run; only the `metadata.from_cache` flag differs. To invalidate all
+cached results after a prompt change, bump `CACHE_SCHEMA_VERSION` in
+`backend/leads_storage.py`.
+
+### Do NOT add uvicorn workers (`-w N`)
+The in-memory `CouncilJobManager` in `backend/jobs.py` is per-process; SSE
+attach from a second worker for an existing job returns 404. JSON storage in
+`backend/storage.py` also races across processes (atomic `os.replace` only
+helps inside one process). Stay on a single uvicorn worker until job state
+moves to Redis.
+
 ## Future Enhancement Ideas
 
 - Configurable council/chairman via UI instead of config file

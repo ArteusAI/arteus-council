@@ -5,6 +5,7 @@ import time
 import httpx
 from typing import List, Dict, Any, Optional
 from .config import YANDEX_API_KEY, YANDEX_FOLDER_ID
+from .http_client import get_client
 
 logger = logging.getLogger("llm-council.yandex")
 
@@ -62,28 +63,27 @@ async def query_model(
     start_time = time.time()
     
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            
-            data = response.json()
-            # YandexGPT response structure: result -> alternatives -> [0] -> message -> text
-            result = data.get("result", {})
-            alternatives = result.get("alternatives", [])
-            
-            if not alternatives:
-                logger.error(f"[{actual_model}] No alternatives in Yandex response: {data}")
-                return None
-                
-            content = alternatives[0].get("message", {}).get("text", "")
-            duration = time.time() - start_time
-            
-            logger.info(f"[{actual_model}] OK in {duration:.1f}s, response_len={len(content)}")
-            
-            return {
-                "content": content,
-                "reasoning_details": ""
-            }
+        client = get_client()
+        response = await client.post(url, headers=headers, json=payload, timeout=timeout)
+        response.raise_for_status()
+
+        data = response.json()
+        result = data.get("result", {})
+        alternatives = result.get("alternatives", [])
+
+        if not alternatives:
+            logger.error(f"[{actual_model}] No alternatives in Yandex response: {data}")
+            return None
+
+        content = alternatives[0].get("message", {}).get("text", "")
+        duration = time.time() - start_time
+
+        logger.info(f"[{actual_model}] OK in {duration:.1f}s, response_len={len(content)}")
+
+        return {
+            "content": content,
+            "reasoning_details": ""
+        }
 
     except Exception as e:
         duration = time.time() - start_time

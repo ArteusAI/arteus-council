@@ -5,6 +5,7 @@ import uuid
 import json
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, BackgroundTasks, Depends, FastAPI, HTTPException, Request
 
@@ -56,7 +57,8 @@ from .council import (
     generate_conversation_title,
     run_full_council,
 )
-from .firecrawl import process_message_links
+from .firecrawl import extract_urls, process_message_links
+from . import http_client
 from .job_storage import LeadsJobStorage, LocalJobStorage
 from .jobs import CouncilJob, JobConflictError, JobNotFoundError, job_manager
 from .openrouter import check_api_limits
@@ -67,11 +69,33 @@ def _prefixed_path(path: str) -> str:
     return f"{BACKEND_ROOT_PATH}{path}" if BACKEND_ROOT_PATH else path
 
 
+def _format_lead_contact(
+    email: str | None,
+    telegram: str | None,
+    linkedin: str | None,
+) -> str:
+    """Build a short contact summary like 'email=a@b.com telegram=- linkedin=foo'."""
+    return (
+        f"email={email or '-'} telegram={telegram or '-'} linkedin={linkedin or '-'}"
+    )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage shared resources (httpx pool) for the app lifetime."""
+    await http_client.startup()
+    try:
+        yield
+    finally:
+        await http_client.shutdown()
+
+
 app = FastAPI(
     title="LLM Council API",
     docs_url=_prefixed_path("/docs"),
     redoc_url=_prefixed_path("/redoc"),
     openapi_url=_prefixed_path("/openapi.json"),
+    lifespan=lifespan,
 )
 router = APIRouter()
 
@@ -252,6 +276,12 @@ async def register_lead(request: LeadsRegisterRequest):
             session_id, request.email, request.telegram, request.linkedin
         )
 
+        logger.info(
+            "LEAD LOGIN session=%s %s",
+            session_id,
+            _format_lead_contact(request.email, request.telegram, request.linkedin),
+        )
+
         return LeadsRegisterResponse(
             access_token=access_token,
             session_id=session_id,
@@ -358,7 +388,7 @@ async def list_conversations(user: User = Depends(get_current_user)):
     """List all conversations (metadata only)."""
     return job_manager.apply_statuses(
         user.user_id,
-        storage.list_conversations(user.user_id),
+        await asyncio.to_thread(storage.list_conversations, user.user_id),
     )
 
 
@@ -422,14 +452,18 @@ async def update_council_settings(
 async def create_conversation(request: CreateConversationRequest, user: User = Depends(get_current_user)):
     """Create a new conversation."""
     conversation_id = str(uuid.uuid4())
-    conversation = storage.create_conversation(user.user_id, conversation_id)
+    conversation = await asyncio.to_thread(
+        storage.create_conversation, user.user_id, conversation_id
+    )
     return conversation
 
 
 @router.get("/api/conversations/{conversation_id}", response_model=Conversation)
 async def get_conversation(conversation_id: str, user: User = Depends(get_current_user)):
     """Get a specific conversation with all its messages."""
-    conversation = storage.get_conversation(user.user_id, conversation_id)
+    conversation = await asyncio.to_thread(
+        storage.get_conversation, user.user_id, conversation_id
+    )
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conversation
@@ -438,7 +472,9 @@ async def get_conversation(conversation_id: str, user: User = Depends(get_curren
 @router.get("/api/conversations/{conversation_id}/job")
 async def get_conversation_job(conversation_id: str, user: User = Depends(get_current_user)):
     """Get the in-memory background job status for a conversation."""
-    conversation = storage.get_conversation(user.user_id, conversation_id)
+    conversation = await asyncio.to_thread(
+        storage.get_conversation, user.user_id, conversation_id
+    )
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return job_manager.snapshot(user.user_id, conversation_id)
@@ -448,7 +484,9 @@ async def get_conversation_job(conversation_id: str, user: User = Depends(get_cu
 async def delete_conversation(conversation_id: str, user: User = Depends(get_current_user)):
     """Delete a specific conversation."""
     await job_manager.cancel_conversation(user.user_id, conversation_id)
-    deleted = storage.delete_conversation(user.user_id, conversation_id)
+    deleted = await asyncio.to_thread(
+        storage.delete_conversation, user.user_id, conversation_id
+    )
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"deleted": True}
@@ -458,7 +496,9 @@ async def delete_conversation(conversation_id: str, user: User = Depends(get_cur
 async def delete_all_conversations(user: User = Depends(get_current_user)):
     """Delete all conversations for the current session."""
     await job_manager.cancel_all_for_user(user.user_id)
-    count = storage.delete_all_conversations(user.user_id)
+    count = await asyncio.to_thread(
+        storage.delete_all_conversations, user.user_id
+    )
     return {"deleted_count": count}
 
 
@@ -479,33 +519,30 @@ async def send_message(conversation_id: str, request: SendMessageRequest, user: 
     if not request.content.strip():
         raise HTTPException(status_code=400, detail="Message content is required.")
 
-    # Check if conversation exists
-    conversation = storage.get_conversation(user.user_id, conversation_id)
+    conversation = await asyncio.to_thread(
+        storage.get_conversation, user.user_id, conversation_id
+    )
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    # Check if this is the first message
     is_first_message = len(conversation["messages"]) == 0
 
-    # Get user's council settings
     council_settings = await get_user_council_settings(user.user_id)
     personal_prompt = council_settings.get("personal_prompt", "")
-    
-    # Use request base_system_prompt if provided, otherwise use user's saved one, otherwise None (which will fallback to default)
     base_system_prompt = request.base_system_prompt or council_settings.get("base_system_prompt")
 
-    # Add user message
-    storage.add_user_message(user.user_id, conversation_id, request.content)
+    await asyncio.to_thread(
+        storage.add_user_message, user.user_id, conversation_id, request.content
+    )
 
-    # Process links in message
+    # Title generation runs concurrently with link scraping + the council
+    # itself to avoid serializing two LLM calls.
+    title_task: asyncio.Task | None = None
+    if is_first_message:
+        title_task = asyncio.create_task(generate_conversation_title(request.content))
+
     enriched_content, link_metadata, scrape_status = await process_message_links(request.content)
 
-    # If this is the first message, generate a title
-    if is_first_message:
-        title = await generate_conversation_title(request.content)
-        storage.update_conversation_title(user.user_id, conversation_id, title)
-
-    # Run the 3-stage council process
     stage1_results, stage2_results, stage3_result, metadata, rounds = await run_full_council(
         enriched_content,
         models=request.models,
@@ -516,8 +553,17 @@ async def send_message(conversation_id: str, request: SendMessageRequest, user: 
         enable_second_round=request.enable_second_round,
     )
 
-    # Add assistant message with all stages
-    storage.add_assistant_message(
+    if title_task is not None:
+        try:
+            title = await title_task
+            await asyncio.to_thread(
+                storage.update_conversation_title, user.user_id, conversation_id, title
+            )
+        except Exception as exc:
+            logger.warning("Failed to generate/save conversation title: %s", exc)
+
+    await asyncio.to_thread(
+        storage.add_assistant_message,
         user.user_id,
         conversation_id,
         stage1_results,
@@ -547,7 +593,9 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
         raise HTTPException(status_code=400, detail="At least one model must be selected.")
 
     user_id = user.user_id
-    conversation = storage.get_conversation(user_id, conversation_id)
+    conversation = await asyncio.to_thread(
+        storage.get_conversation, user_id, conversation_id
+    )
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -740,6 +788,20 @@ async def send_leads_message_stream(
     request_payload = request.model_dump()
     request_payload["enable_second_round"] = False
     request_payload["continue_last_assistant_round"] = False
+
+    if not request.attach_only:
+        content_preview = (request.content or "").strip().replace("\n", " ")
+        if len(content_preview) > 200:
+            content_preview = content_preview[:200] + "..."
+        urls = extract_urls(request.content or "")
+        logger.info(
+            "LEAD REQUEST session=%s %s conv=%s urls=%s content=%r",
+            session_id,
+            _format_lead_contact(lead.email, lead.telegram, lead.linkedin),
+            conversation_id,
+            urls or "-",
+            content_preview,
+        )
 
     try:
         job = await job_manager.start_or_attach(
