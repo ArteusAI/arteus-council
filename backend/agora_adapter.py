@@ -1,5 +1,6 @@
 """Arteus Agora RAG API client for Council-compatible LLM requests."""
 
+import ast
 import asyncio
 import json
 import logging
@@ -75,6 +76,153 @@ def _content_to_text(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+def _has_cyrillic(text: str) -> bool:
+    return any("\u0400" <= char <= "\u04ff" for char in text)
+
+
+def _promote_section_heading(text: str) -> str:
+    lines = text.strip().splitlines()
+    if len(lines) < 3 or lines[1].strip():
+        return text.strip()
+
+    first_line = lines[0].strip()
+    number, separator, title = first_line.partition(". ")
+    if number.isdigit() and separator and title:
+        lines[0] = f"## {first_line}"
+        return "\n".join(lines).strip()
+
+    return text.strip()
+
+
+def _format_structured_section(section: Any) -> Optional[str]:
+    if isinstance(section, str):
+        text = section.strip()
+        return _promote_section_heading(text) if text else None
+
+    if not isinstance(section, dict):
+        text = _content_to_text(section).strip()
+        return text or None
+
+    section_type = str(section.get("type") or "").strip().lower()
+    title = str(section.get("title") or section.get("heading") or "").strip()
+    text = str(
+        section.get("markdown")
+        or section.get("text")
+        or section.get("content")
+        or ""
+    ).strip()
+
+    if section_type in {"heading", "title"} and text:
+        return f"## {text}"
+
+    parts: List[str] = []
+    if title:
+        parts.append(f"## {title}")
+    if text:
+        parts.append(_promote_section_heading(text))
+
+    items = section.get("items")
+    if isinstance(items, list) and items:
+        list_lines = [f"- {_content_to_text(item).strip()}" for item in items if _content_to_text(item).strip()]
+        if list_lines:
+            parts.append("\n".join(list_lines))
+
+    return "\n\n".join(parts).strip() or None
+
+
+def _format_source_ref(source: Any) -> Optional[str]:
+    if not isinstance(source, dict):
+        text = _content_to_text(source).strip()
+        return text or None
+
+    source_type = str(source.get("source_type") or "source").strip()
+    context_doc_num = source.get("context_doc_num")
+    context_summary_num = source.get("context_summary_num")
+    message_id = source.get("message_id")
+
+    if source_type == "document" and context_doc_num is not None:
+        return f"document {context_doc_num}"
+
+    bits: List[str] = []
+    if context_doc_num is not None:
+        bits.append(f"document {context_doc_num}")
+    if context_summary_num is not None:
+        bits.append(f"summary {context_summary_num}")
+    if message_id is not None:
+        bits.append(f"message {message_id}")
+
+    return f"{source_type} {', '.join(bits)}".strip()
+
+
+def _format_structured_explanations(explanations: Any, body_text: str) -> Optional[str]:
+    if not isinstance(explanations, list) or not explanations:
+        return None
+
+    explanation_text = "\n".join(_content_to_text(item) for item in explanations)
+    is_russian = _has_cyrillic(f"{body_text}\n{explanation_text}")
+    heading = "## Источники и пояснения" if is_russian else "## Sources and Notes"
+    sources_label = "Источники" if is_russian else "Sources"
+
+    lines = [heading]
+    for index, item in enumerate(explanations, start=1):
+        if isinstance(item, dict):
+            explanation = str(item.get("explanation") or "").strip()
+            if explanation:
+                lines.append(f"{index}. {explanation}")
+
+            source_refs = []
+            sources = item.get("sources")
+            if isinstance(sources, list):
+                source_refs = [ref for ref in (_format_source_ref(source) for source in sources) if ref]
+            if source_refs:
+                source_text = f"*{sources_label}: {'; '.join(source_refs)}.*"
+                if explanation:
+                    lines.append(f"   {source_text}")
+                else:
+                    lines.append(f"{index}. {source_text}")
+        else:
+            text = _content_to_text(item).strip()
+            if text:
+                lines.append(f"{index}. {text}")
+
+    return "\n".join(lines).strip() if len(lines) > 1 else None
+
+
+def _structured_output_to_markdown(output: Any) -> Optional[str]:
+    if not isinstance(output, dict):
+        return None
+
+    sections = output.get("sections")
+    if not isinstance(sections, list):
+        return None
+
+    parts = [part for part in (_format_structured_section(section) for section in sections) if part]
+    body_text = "\n\n".join(parts).strip()
+    explanations = _format_structured_explanations(output.get("explanations"), body_text)
+    if explanations:
+        parts.append(f"---\n\n{explanations}")
+
+    return "\n\n".join(parts).strip() or None
+
+
+def _parse_structured_output_text(text: str) -> Optional[Any]:
+    stripped = text.strip()
+    if not stripped or stripped[0] not in "{[":
+        return None
+    if "sections" not in stripped and "response_kind" not in stripped and "explanations" not in stripped:
+        return None
+
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        pass
+
+    try:
+        return ast.literal_eval(stripped)
+    except (SyntaxError, ValueError):
+        return None
+
+
 def _append_detail_instruction(prompt: str) -> str:
     return f"{prompt.rstrip()}\n\n{_DETAIL_INSTRUCTION}"
 
@@ -130,7 +278,15 @@ def _extract_output(data: Dict[str, Any]) -> Optional[str]:
         return None
 
     output = data["output_text"]
+    structured_markdown = _structured_output_to_markdown(output)
+    if structured_markdown:
+        return structured_markdown
+
     if isinstance(output, str):
+        structured_output = _parse_structured_output_text(output)
+        structured_markdown = _structured_output_to_markdown(structured_output)
+        if structured_markdown:
+            return structured_markdown
         return output if output.strip() else None
 
     if isinstance(output, (dict, list)):

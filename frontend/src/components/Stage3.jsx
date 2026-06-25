@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import ModelLabel from './ModelLabel';
+import { formatResponseMarkdown } from '../utils/responseMarkdown';
 import './Stage3.css';
 
 export default function Stage3({ finalResponse, t }) {
@@ -10,9 +11,11 @@ export default function Stage3({ finalResponse, t }) {
     return null;
   }
 
+  const responseMarkdown = formatResponseMarkdown(finalResponse.response);
+
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(finalResponse.response);
+      await navigator.clipboard.writeText(responseMarkdown);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
@@ -28,7 +31,7 @@ export default function Stage3({ finalResponse, t }) {
           {t('chairmanLabel')}: <ModelLabel model={finalResponse.model} />
         </div>
         <div className="final-text markdown-content">
-          <ReactMarkdown>{finalResponse.response}</ReactMarkdown>
+          <ReactMarkdown>{responseMarkdown}</ReactMarkdown>
         </div>
         <button 
           className={`copy-response-btn ${copied ? 'copied' : ''}`}

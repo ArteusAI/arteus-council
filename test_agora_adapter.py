@@ -192,6 +192,87 @@ class AgoraAdapterTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response["content"], json.dumps({"answer": "Привет"}, ensure_ascii=False))
 
+    async def test_structured_output_text_object_is_formatted_as_markdown(self):
+        structured_output = {
+            "response_kind": "answer",
+            "sections": [
+                {"type": "text", "text": "Короткое вступление."},
+                {
+                    "type": "text",
+                    "text": "1. Главный раздел\n\n1) Первый пункт.\nТекст пункта.",
+                },
+            ],
+            "explanations": [
+                {
+                    "explanation": "Основано на внутреннем контексте.",
+                    "sources": [
+                        {"source_type": "document", "context_doc_num": 15},
+                        {"source_type": "cite", "context_doc_num": 46, "message_id": "368536"},
+                    ],
+                }
+            ],
+        }
+        fake_client = FakeAsyncClient(
+            [
+                MockResponse({"session_id": "session-1"}),
+                MockResponse({"request_id": "request-1", "input_text": "Question", "status": "pending"}),
+                MockResponse(
+                    {
+                        "request_id": "request-1",
+                        "input_text": "Question",
+                        "output_text": structured_output,
+                        "status": "final",
+                    }
+                ),
+            ]
+        )
+
+        with patch.object(agora_adapter, "AGORA_API_KEY", "test-key"):
+            with patch("backend.agora_adapter.httpx.AsyncClient", return_value=fake_client):
+                response = await agora_adapter.query_model(
+                    "agora/rag",
+                    [{"role": "user", "content": "Question"}],
+                    timeout=5,
+                )
+
+        self.assertIn("Короткое вступление.", response["content"])
+        self.assertIn("## 1. Главный раздел", response["content"])
+        self.assertIn("## Источники и пояснения", response["content"])
+        self.assertIn("document 15", response["content"])
+        self.assertIn("cite document 46, message 368536", response["content"])
+
+    async def test_structured_output_text_string_is_formatted_as_markdown(self):
+        fake_client = FakeAsyncClient(
+            [
+                MockResponse({"session_id": "session-1"}),
+                MockResponse({"request_id": "request-1", "input_text": "Question", "status": "pending"}),
+                MockResponse(
+                    {
+                        "request_id": "request-1",
+                        "input_text": "Question",
+                        "output_text": json.dumps(
+                            {
+                                "response_kind": "answer",
+                                "sections": [{"type": "text", "text": "Plain answer"}],
+                            },
+                            ensure_ascii=False,
+                        ),
+                        "status": "final",
+                    }
+                ),
+            ]
+        )
+
+        with patch.object(agora_adapter, "AGORA_API_KEY", "test-key"):
+            with patch("backend.agora_adapter.httpx.AsyncClient", return_value=fake_client):
+                response = await agora_adapter.query_model(
+                    "agora/rag",
+                    [{"role": "user", "content": "Question"}],
+                    timeout=5,
+                )
+
+        self.assertEqual(response["content"], "Plain answer")
+
     async def test_output_text_list_is_serialized_without_ascii_escaping(self):
         fake_client = FakeAsyncClient(
             [

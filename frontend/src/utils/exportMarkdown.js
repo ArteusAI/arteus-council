@@ -1,4 +1,5 @@
 import { getModelDisplayName } from './modelDisplay';
+import { formatResponseMarkdown } from './responseMarkdown';
 
 function getRound(assistantMessage, roundNumber) {
   return assistantMessage.rounds?.find((round) => round.round === roundNumber) || null;
@@ -18,7 +19,7 @@ function formatResponsesSection(lines, title, stageData) {
     const modelName = getModelDisplayName(item.model);
     lines.push(`### ${modelName}`);
     lines.push('');
-    lines.push(item.response || '');
+    lines.push(formatResponseMarkdown(item.response));
     lines.push('');
   }
 }
@@ -77,7 +78,7 @@ export function formatCouncilAsMarkdown(userQuestion, assistantMessage, t) {
     const chairmanName = getModelDisplayName(assistantMessage.stage3.model || 'Chairman');
     lines.push(`## ${t('stage3Title')} (${chairmanName})`);
     lines.push('');
-    lines.push(assistantMessage.stage3.response);
+    lines.push(formatResponseMarkdown(assistantMessage.stage3.response));
     lines.push('');
   }
 

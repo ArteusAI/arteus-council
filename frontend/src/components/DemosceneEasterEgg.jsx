@@ -1,370 +1,512 @@
 import { useEffect, useRef, useState } from 'react';
+import { takePrimedDemosceneAudio } from '../utils/demosceneAudio';
 import './DemosceneEasterEgg.css';
+
+const TAU = Math.PI * 2;
 
 export default function DemosceneEasterEgg({ onClose }) {
   const canvasRef = useRef(null);
   const [showText, setShowText] = useState(false);
+  const [audioBlocked, setAudioBlocked] = useState(false);
   const animationRef = useRef(null);
-  const startTimeRef = useRef(null);
+  const audioRef = useRef(null);
 
   useEffect(() => {
-    startTimeRef.current = Date.now();
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    const backgroundCanvas = document.createElement('canvas');
+    const backgroundCtx = backgroundCanvas.getContext('2d', { alpha: false });
     let width = window.innerWidth;
     let height = window.innerHeight;
-    canvas.width = width;
-    canvas.height = height;
+    let pixelRatio = 1;
+    let startTime = performance.now();
+    let lastFrame = startTime;
+    let stars = [];
+    let dust = [];
+    let accretion = [];
 
-    // Starfield particles - reduce count on mobile for performance
-    const starCount = width <= 480 ? 200 : 400;
-    const stars = Array.from({ length: starCount }, () => ({
-      x: Math.random() * width - width / 2,
-      y: Math.random() * height - height / 2,
-      z: Math.random() * 1000,
-    }));
+    const isMobile = () => width <= 480;
+    const centerX = () => width * 0.5;
+    const centerY = () => height * 0.5;
+    const getCanvasPixelRatio = () => {
+      const deviceRatio = window.devicePixelRatio || 1;
+      const longEdge = Math.max(window.innerWidth, window.innerHeight);
 
-    // Plasma parameters
-    const plasmaScale = 0.02;
-    let time = 0;
+      if (longEdge >= 1800) return Math.min(deviceRatio, 0.85);
+      if (longEdge >= 1200) return Math.min(deviceRatio, 1);
+      return Math.min(deviceRatio, 1.25);
+    };
 
-    const resize = () => {
+    const resizeCanvas = () => {
       width = window.innerWidth;
       height = window.innerHeight;
-      canvas.width = width;
-      canvas.height = height;
+      pixelRatio = getCanvasPixelRatio();
+      canvas.width = Math.floor(width * pixelRatio);
+      canvas.height = Math.floor(height * pixelRatio);
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      ctx.imageSmoothingEnabled = true;
     };
+
+    const resetStar = (star, deep = false) => {
+      const spread = Math.max(width, height) * 1.25;
+      star.x = (Math.random() - 0.5) * spread;
+      star.y = (Math.random() - 0.5) * spread;
+      star.z = deep ? Math.random() * 1200 + 600 : Math.random() * 1400 + 80;
+      star.size = Math.random() * 1.6 + 0.35;
+      star.tint = Math.random();
+      star.prevX = null;
+      star.prevY = null;
+    };
+
+    const buildParticles = () => {
+      const starCount = isMobile() ? 180 : 380;
+      const dustCount = isMobile() ? 12 : 24;
+      const diskCount = isMobile() ? 54 : 92;
+
+      stars = Array.from({ length: starCount }, () => {
+        const star = {};
+        resetStar(star, true);
+        return star;
+      });
+
+      dust = Array.from({ length: dustCount }, () => ({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        radius: Math.random() * 240 + 120,
+        alpha: Math.random() * 0.08 + 0.025,
+        hue: Math.random() > 0.55 ? 196 : 270,
+      }));
+
+      accretion = Array.from({ length: diskCount }, () => ({
+        angle: Math.random() * TAU,
+        radius: Math.random() * 0.75 + 0.4,
+        speed: Math.random() * 0.45 + 0.25,
+        size: Math.random() * 2.4 + 0.8,
+        lane: Math.random() > 0.5 ? 1 : -1,
+        hueShift: Math.random() * 40 - 20,
+      }));
+    };
+
+    const buildBackgroundTexture = () => {
+      const textureScale = Math.min(0.45, 760 / Math.max(width, height));
+      const textureWidth = Math.max(1, Math.floor(width * textureScale));
+      const textureHeight = Math.max(1, Math.floor(height * textureScale));
+
+      backgroundCanvas.width = textureWidth;
+      backgroundCanvas.height = textureHeight;
+
+      const bg = backgroundCtx.createRadialGradient(
+        textureWidth * 0.5,
+        textureHeight * 0.42,
+        0,
+        textureWidth * 0.5,
+        textureHeight * 0.5,
+        Math.max(textureWidth, textureHeight) * 0.85
+      );
+      bg.addColorStop(0, 'rgb(9, 18, 42)');
+      bg.addColorStop(0.5, 'rgb(2, 6, 19)');
+      bg.addColorStop(1, 'rgb(0, 0, 0)');
+      backgroundCtx.fillStyle = bg;
+      backgroundCtx.fillRect(0, 0, textureWidth, textureHeight);
+
+      for (const cloud of dust) {
+        const nebula = backgroundCtx.createRadialGradient(
+          cloud.x * textureScale,
+          cloud.y * textureScale,
+          0,
+          cloud.x * textureScale,
+          cloud.y * textureScale,
+          cloud.radius * textureScale
+        );
+        nebula.addColorStop(0, `hsla(${cloud.hue}, 100%, 62%, ${cloud.alpha})`);
+        nebula.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        backgroundCtx.fillStyle = nebula;
+        backgroundCtx.fillRect(0, 0, textureWidth, textureHeight);
+      }
+    };
+
+    const resize = () => {
+      resizeCanvas();
+      buildParticles();
+      buildBackgroundTexture();
+    };
+
+    resize();
     window.addEventListener('resize', resize);
 
-    // Color palette - cyberpunk neon
-    const hslToRgb = (h, s, l) => {
-      let r, g, b;
-      if (s === 0) {
-        r = g = b = l;
-      } else {
-        const hue2rgb = (p, q, t) => {
-          if (t < 0) t += 1;
-          if (t > 1) t -= 1;
-          if (t < 1 / 6) return p + (q - p) * 6 * t;
-          if (t < 1 / 2) return q;
-          if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-          return p;
-        };
-        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-        const p = 2 * l - q;
-        r = hue2rgb(p, q, h + 1 / 3);
-        g = hue2rgb(p, q, h);
-        b = hue2rgb(p, q, h - 1 / 3);
-      }
-      return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+    const drawBackground = (elapsed) => {
+      const pulse = Math.sin(elapsed * 0.18) * 0.5 + 0.5;
+      ctx.drawImage(backgroundCanvas, 0, 0, width, height);
+      ctx.fillStyle = `rgba(9, 18, 42, ${0.02 + pulse * 0.025})`;
+      ctx.fillRect(0, 0, width, height);
     };
 
-    // Glitch effect
-    const glitch = (ctx, w, h, intensity) => {
-      if (Math.random() > 0.95) {
-        const sliceY = Math.random() * h;
-        const sliceH = Math.random() * 30 + 5;
-        const offset = (Math.random() - 0.5) * intensity * 50;
-        const imgData = ctx.getImageData(0, sliceY, w, sliceH);
-        ctx.putImageData(imgData, offset, sliceY);
-      }
-    };
+    const drawStars = (elapsed, delta) => {
+      const cx = centerX();
+      const cy = centerY();
+      const warp = Math.min(1, Math.max(0, (elapsed - 3) / 4));
+      const blackHolePull = Math.min(1, Math.max(0, (elapsed - 6.5) / 4));
+      const speed = 38 + warp * 520 + blackHolePull * 160;
+      const focal = Math.min(width, height) * (isMobile() ? 0.72 : 0.88);
 
-    // Scanlines
-    const drawScanlines = (ctx, w, h) => {
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.03)';
-      for (let y = 0; y < h; y += 2) {
-        ctx.fillRect(0, y, w, 1);
-      }
-    };
-
-    // CRT effect
-    const drawCRT = (ctx, w, h) => {
-      const gradient = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w * 0.8);
-      gradient.addColorStop(0, 'rgba(0,0,0,0)');
-      gradient.addColorStop(1, 'rgba(0,0,0,0.4)');
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, w, h);
-    };
-
-    // Rotozoom plasma - responsive step size for mobile performance
-    const drawPlasma = (ctx, w, h, t) => {
-      const imgData = ctx.createImageData(w, h);
-      const data = imgData.data;
-      const cx = w / 2;
-      const cy = h / 2;
-      const zoom = 2 + Math.sin(t * 0.3) * 0.5;
-      const rot = t * 0.1;
-      const cosR = Math.cos(rot);
-      const sinR = Math.sin(rot);
-      const step = w <= 480 ? 4 : 3;
-
-      for (let y = 0; y < h; y += step) {
-        for (let x = 0; x < w; x += step) {
-          const dx = (x - cx) / zoom;
-          const dy = (y - cy) / zoom;
-          const rx = dx * cosR - dy * sinR;
-          const ry = dx * sinR + dy * cosR;
-
-          const val1 = Math.sin(rx * plasmaScale + t);
-          const val2 = Math.sin(ry * plasmaScale + t * 0.8);
-          const val3 = Math.sin((rx + ry) * plasmaScale * 0.5 + t * 1.2);
-          const val4 = Math.sin(Math.sqrt(rx * rx + ry * ry) * plasmaScale * 0.5 + t * 0.5);
-          const val = (val1 + val2 + val3 + val4) / 4;
-
-          const hue = (val * 0.5 + 0.5 + t * 0.02) % 1;
-          const [r, g, b] = hslToRgb(hue, 0.85, 0.45);
-
-          for (let dy2 = 0; dy2 < step && y + dy2 < h; dy2++) {
-            for (let dx2 = 0; dx2 < step && x + dx2 < w; dx2++) {
-              const idx = ((y + dy2) * w + (x + dx2)) * 4;
-              data[idx] = r;
-              data[idx + 1] = g;
-              data[idx + 2] = b;
-              data[idx + 3] = 120;
-            }
-          }
-        }
-      }
-      ctx.putImageData(imgData, 0, 0);
-    };
-
-    // 3D Starfield
-    const drawStarfield = (ctx, w, h, t) => {
-      const cx = w / 2;
-      const cy = h / 2;
-      const speed = 8;
-
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
       for (const star of stars) {
-        star.z -= speed;
-        if (star.z <= 0) {
-          star.x = Math.random() * w - cx;
-          star.y = Math.random() * h - cy;
-          star.z = 1000;
+        const prevX = star.prevX;
+        const prevY = star.prevY;
+        star.z -= speed * delta;
+        star.x += Math.sin(elapsed * 0.14 + star.y * 0.003) * blackHolePull * 10 * delta;
+        star.y += Math.cos(elapsed * 0.12 + star.x * 0.003) * blackHolePull * 8 * delta;
+
+        if (star.z < 18) {
+          resetStar(star);
         }
 
-        const sx = (star.x / star.z) * 500 + cx;
-        const sy = (star.y / star.z) * 500 + cy;
-        const size = (1 - star.z / 1000) * 3;
-        const brightness = 1 - star.z / 1000;
+        const lens = blackHolePull * 0.18;
+        const twist = Math.atan2(star.y, star.x) + lens * Math.sin(elapsed + star.z * 0.004);
+        const distance = Math.hypot(star.x, star.y) * (1 + lens);
+        const projectedX = cx + (Math.cos(twist) * distance / star.z) * focal;
+        const projectedY = cy + (Math.sin(twist) * distance / star.z) * focal;
 
-        if (sx >= 0 && sx < w && sy >= 0 && sy < h) {
-          const hue = (t * 0.01 + brightness * 0.5) % 1;
-          ctx.fillStyle = `hsla(${hue * 360}, 100%, ${50 + brightness * 50}%, ${brightness})`;
+        if (
+          projectedX < -80 ||
+          projectedX > width + 80 ||
+          projectedY < -80 ||
+          projectedY > height + 80
+        ) {
+          resetStar(star);
+          continue;
+        }
+
+        const depth = 1 - Math.min(star.z / 1500, 1);
+        const alpha = Math.min(1, 0.18 + depth * 0.9);
+        const size = star.size + depth * (warp > 0.2 ? 2.5 : 1.3);
+        const hue = star.tint > 0.7 ? 196 : star.tint > 0.42 ? 46 : 220;
+
+        if (warp > 0.08 && prevX !== null && prevY !== null) {
+          const tail = 1 + warp * (isMobile() ? 7 : 13);
+          const dx = projectedX - prevX;
+          const dy = projectedY - prevY;
+          ctx.strokeStyle = `hsla(${hue}, 100%, ${68 + depth * 24}%, ${alpha})`;
+          ctx.lineWidth = Math.max(1, size * 0.7);
           ctx.beginPath();
-          ctx.arc(sx, sy, size, 0, Math.PI * 2);
+          ctx.moveTo(projectedX - dx * tail, projectedY - dy * tail);
+          ctx.lineTo(projectedX, projectedY);
+          ctx.stroke();
+        } else {
+          ctx.fillStyle = `hsla(${hue}, 100%, ${72 + depth * 22}%, ${alpha})`;
+          ctx.beginPath();
+          ctx.arc(projectedX, projectedY, size, 0, TAU);
           ctx.fill();
         }
+
+        star.prevX = projectedX;
+        star.prevY = projectedY;
       }
-    };
-
-    // Tunnel effect - responsive for mobile
-    const drawTunnel = (ctx, w, h, t) => {
-      const cx = w / 2;
-      const cy = h / 2;
-      const maxRadius = Math.min(w, h) * 0.6;
-      const isMobile = w <= 480;
-      const ringCount = isMobile ? 15 : 20;
-      const segments = isMobile ? 12 : 16;
-
-      for (let ring = 0; ring < ringCount; ring++) {
-        const depth = (ring + t * 2) % ringCount;
-        const radius = (depth / ringCount) * maxRadius;
-        const alpha = 1 - depth / ringCount;
-        const hue = (ring * 18 + t * 30) % 360;
-
-        ctx.strokeStyle = `hsla(${hue}, 100%, 60%, ${alpha * 0.5})`;
-        ctx.lineWidth = isMobile ? 1.5 : 2;
-        ctx.beginPath();
-
-        for (let i = 0; i <= segments; i++) {
-          const angle = (i / segments) * Math.PI * 2 + t * 0.2 + ring * 0.1;
-          const wobble = Math.sin(angle * 3 + t) * (isMobile ? 6 : 10) * (1 - depth / ringCount);
-          const x = cx + Math.cos(angle) * (radius + wobble);
-          const y = cy + Math.sin(angle) * (radius + wobble);
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.closePath();
-        ctx.stroke();
-      }
-    };
-
-    // Matrix rain - responsive sizing
-    const matrixColWidth = width <= 480 ? 14 : 20;
-    const matrixFontSize = width <= 480 ? 12 : 16;
-    const matrixColumns = Math.floor(width / matrixColWidth);
-    const matrixDrops = Array.from({ length: matrixColumns }, () => Math.random() * height);
-    const chars = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン01';
-
-    const drawMatrix = (ctx, w, h, t) => {
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
-      ctx.fillRect(0, 0, w, h);
-
-      ctx.font = `${matrixFontSize}px monospace`;
-
-      for (let i = 0; i < matrixDrops.length; i++) {
-        const char = chars[Math.floor(Math.random() * chars.length)];
-        const x = i * matrixColWidth;
-        const y = matrixDrops[i];
-        const hue = (t * 10 + i * 5) % 360;
-
-        ctx.fillStyle = `hsla(${hue}, 100%, 50%, 0.8)`;
-        ctx.fillText(char, x, y);
-
-        if (y > h && Math.random() > 0.98) {
-          matrixDrops[i] = 0;
-        }
-        matrixDrops[i] += width <= 480 ? 12 : 15;
-      }
-    };
-
-    // Scrolling text
-    let scrollX = width;
-    const scrollText = '>>> ARTEUS <<<  We\'re building AI assistants that aren\'t afraid to break the rules  :::  ';
-
-    const getResponsiveFontSize = (w) => {
-      if (w <= 360) return 18;
-      if (w <= 390) return 22;
-      if (w <= 480) return 28;
-      if (w <= 768) return 36;
-      return 48;
-    };
-
-    const getResponsiveWaveAmplitude = (w) => {
-      if (w <= 480) return 10;
-      return 20;
-    };
-
-    const drawScrollText = (ctx, w, h, t) => {
-      ctx.save();
-      const fontSize = getResponsiveFontSize(w);
-      const waveAmplitude = getResponsiveWaveAmplitude(w);
-      ctx.font = `bold ${fontSize}px "Courier New", monospace`;
-
-      const textWidth = ctx.measureText(scrollText).width;
-      const scrollSpeed = w <= 480 ? 2 : 4;
-      scrollX -= scrollSpeed;
-      if (scrollX < -textWidth) scrollX = w;
-
-      // Glow effect
-      for (let i = 3; i > 0; i--) {
-        const hue = (t * 20) % 360;
-        ctx.fillStyle = `hsla(${hue}, 100%, 60%, ${0.2 / i})`;
-        ctx.fillText(scrollText, scrollX - i, h / 2 + Math.sin(t + scrollX * 0.01) * waveAmplitude);
-        ctx.fillText(scrollText, scrollX + i, h / 2 + Math.sin(t + scrollX * 0.01) * waveAmplitude);
-      }
-
-      const hue = (t * 20) % 360;
-      ctx.fillStyle = `hsl(${hue}, 100%, 70%)`;
-      ctx.fillText(scrollText, scrollX, h / 2 + Math.sin(t + scrollX * 0.01) * waveAmplitude);
       ctx.restore();
     };
 
-    // Copper bars - responsive sizing
-    const drawCopperBars = (ctx, w, h, t) => {
-      const isMobile = w <= 480;
-      const barCount = isMobile ? 6 : 8;
-      const barHeight = isMobile ? 25 : 40;
-      const waveAmplitude = isMobile ? 60 : 100;
-      const barSpacing = isMobile ? 35 : 50;
+    const drawBlackHole = (elapsed) => {
+      const reveal = Math.min(1, Math.max(0, (elapsed - 6.2) / 3.2));
+      if (reveal <= 0) return;
 
-      for (let i = 0; i < barCount; i++) {
-        const y = h * 0.3 + Math.sin(t * 2 + i * 0.5) * waveAmplitude + i * barSpacing;
-        const hue = (t * 30 + i * 45) % 360;
+      const cx = centerX() + Math.sin(elapsed * 0.22) * width * 0.025;
+      const cy = centerY() - height * 0.04 + Math.cos(elapsed * 0.17) * height * 0.018;
+      const base = Math.min(width, height) * (isMobile() ? 0.18 : 0.22);
+      const radius = base * (0.45 + reveal * 0.9 + Math.sin(elapsed * 0.8) * 0.025);
+      const diskWidth = radius * (3.15 + reveal * 0.35);
+      const diskHeight = radius * 0.62;
+      const horizonGlow = ctx.createRadialGradient(cx, cy, radius * 0.2, cx, cy, radius * 3.2);
 
-        const gradient = ctx.createLinearGradient(0, y, 0, y + barHeight);
-        gradient.addColorStop(0, `hsla(${hue}, 100%, 30%, 0.7)`);
-        gradient.addColorStop(0.5, `hsla(${hue}, 100%, 70%, 0.8)`);
-        gradient.addColorStop(1, `hsla(${hue}, 100%, 30%, 0.7)`);
+      horizonGlow.addColorStop(0, 'rgba(0, 0, 0, 1)');
+      horizonGlow.addColorStop(0.32, 'rgba(0, 0, 0, 0.98)');
+      horizonGlow.addColorStop(0.43, `rgba(104, 224, 255, ${0.18 * reveal})`);
+      horizonGlow.addColorStop(0.55, `rgba(255, 143, 57, ${0.2 * reveal})`);
+      horizonGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = horizonGlow;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius * 3.2, 0, TAU);
+      ctx.fill();
 
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, y, w, barHeight);
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(Math.sin(elapsed * 0.08) * 0.08);
+      ctx.globalCompositeOperation = 'lighter';
+
+      for (let i = 0; i < 3; i++) {
+        const scale = 1 + i * 0.14;
+        ctx.strokeStyle = `hsla(${28 + i * 10}, 100%, ${58 + i * 5}%, ${0.2 * reveal})`;
+        ctx.lineWidth = Math.max(1, radius * (0.07 - i * 0.007));
+        ctx.beginPath();
+        ctx.ellipse(0, 0, diskWidth * scale, diskHeight * scale, 0, 0, TAU);
+        ctx.stroke();
+      }
+
+      for (const particle of accretion) {
+        const orbit = particle.angle + elapsed * particle.speed * particle.lane;
+        const r = radius * (1.15 + particle.radius * 1.2);
+        const x = Math.cos(orbit) * r * 1.72;
+        const y = Math.sin(orbit) * r * 0.34;
+        const front = Math.sin(orbit) > 0 ? 1 : 0.46;
+        const hue = 35 + particle.hueShift + front * 170;
+
+        ctx.fillStyle = `hsla(${hue}, 100%, ${58 + front * 22}%, ${reveal * front})`;
+        ctx.beginPath();
+        ctx.ellipse(x, y, particle.size * (1.4 + front), particle.size, 0, 0, TAU);
+        ctx.fill();
+      }
+
+      ctx.strokeStyle = `rgba(151, 232, 255, ${0.58 * reveal})`;
+      ctx.lineWidth = Math.max(1, radius * 0.025);
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 1.28, -0.25, TAU - 0.25);
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, TAU);
+      ctx.fill();
+
+      const rim = ctx.createRadialGradient(cx, cy, radius * 0.8, cx, cy, radius * 1.45);
+      rim.addColorStop(0, 'rgba(0, 0, 0, 0)');
+      rim.addColorStop(0.68, `rgba(132, 229, 255, ${0.42 * reveal})`);
+      rim.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = rim;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius * 1.55, 0, TAU);
+      ctx.fill();
+    };
+
+    const drawHudText = (elapsed) => {
+      const cx = centerX();
+      const y = height * (isMobile() ? 0.76 : 0.78);
+      const fontSize = isMobile() ? 12 : 14;
+      const label = elapsed < 6.5 ? 'WARP VECTOR LOCKED' : 'EVENT HORIZON APPROACH';
+
+      ctx.save();
+      ctx.font = `700 ${fontSize}px "Courier New", monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `rgba(151, 232, 255, ${0.32 + Math.sin(elapsed * 4) * 0.12})`;
+      ctx.fillText(label, cx, y);
+      ctx.restore();
+    };
+
+    const drawPostEffects = (elapsed) => {
+      const vignette = ctx.createRadialGradient(
+        centerX(),
+        centerY(),
+        Math.min(width, height) * 0.22,
+        centerX(),
+        centerY(),
+        Math.max(width, height) * 0.72
+      );
+      vignette.addColorStop(0, 'rgba(0,0,0,0)');
+      vignette.addColorStop(1, 'rgba(0,0,0,0.62)');
+      ctx.fillStyle = vignette;
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.025)';
+      for (let y = 0; y < height; y += 5) {
+        ctx.fillRect(0, y, width, 1);
+      }
+
+      if (Math.random() > 0.975) {
+        const sliceY = Math.random() * height;
+        const sliceH = Math.random() * 14 + 4;
+        const offset = Math.sin(elapsed * 8) * 18;
+        ctx.fillStyle = 'rgba(145, 232, 255, 0.08)';
+        ctx.fillRect(Math.min(0, offset), sliceY, width + Math.abs(offset), sliceH);
+        ctx.fillStyle = 'rgba(255, 143, 57, 0.06)';
+        ctx.fillRect(Math.max(0, offset), sliceY + sliceH * 0.35, width, 1);
       }
     };
 
-    // Main render loop
-    const phases = [
-      { duration: 5000, effect: 'plasma' },
-      { duration: 5000, effect: 'starfield' },
-      { duration: 5000, effect: 'tunnel' },
-      { duration: 5000, effect: 'matrix' },
-    ];
-    let currentPhase = 0;
-    let phaseStart = Date.now();
+    const render = (now) => {
+      const elapsed = (now - startTime) / 1000;
+      const delta = Math.min(0.05, (now - lastFrame) / 1000 || 0.016);
+      lastFrame = now;
 
-    const render = () => {
-      time += 0.02;
-      const elapsed = Date.now() - startTimeRef.current;
-
-      // Phase transition
-      if (Date.now() - phaseStart > phases[currentPhase].duration) {
-        currentPhase = (currentPhase + 1) % phases.length;
-        phaseStart = Date.now();
-      }
-
-      // Fade background
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
-      ctx.fillRect(0, 0, width, height);
-
-      // Draw current effect
-      const phase = phases[currentPhase].effect;
-      if (phase === 'plasma') {
-        drawPlasma(ctx, width, height, time);
-        drawCopperBars(ctx, width, height, time);
-      } else if (phase === 'starfield') {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-        ctx.fillRect(0, 0, width, height);
-        drawStarfield(ctx, width, height, time);
-        drawTunnel(ctx, width, height, time);
-      } else if (phase === 'tunnel') {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-        ctx.fillRect(0, 0, width, height);
-        drawTunnel(ctx, width, height, time);
-        drawStarfield(ctx, width, height, time);
-      } else if (phase === 'matrix') {
-        drawMatrix(ctx, width, height, time);
-      }
-
-      // Always show scrolling text
-      drawScrollText(ctx, width, height, time);
-
-      // Post effects
-      glitch(ctx, width, height, 0.5);
-      drawScanlines(ctx, width, height);
-      drawCRT(ctx, width, height);
-
-      // Show main text after 1 second
-      if (elapsed > 1000 && !showText) {
-        setShowText(true);
-      }
+      drawBackground(elapsed);
+      drawStars(elapsed, delta);
+      drawBlackHole(elapsed);
+      drawHudText(elapsed);
+      drawPostEffects(elapsed);
 
       animationRef.current = requestAnimationFrame(render);
     };
 
-    render();
+    const textTimer = window.setTimeout(() => setShowText(true), 900);
 
-    // Keyboard handler
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
         onClose();
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
+    animationRef.current = requestAnimationFrame(render);
 
     return () => {
+      window.clearTimeout(textTimer);
       window.removeEventListener('resize', resize);
       window.removeEventListener('keydown', handleKeyDown);
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [onClose, showText]);
+  }, [onClose]);
+
+  useEffect(() => {
+    let stopped = false;
+    let stepTimer = null;
+    let sweepTimer = null;
+    let audioContext = null;
+    let master = null;
+
+    const noteToFrequency = (note) => 440 * 2 ** ((note - 69) / 12);
+
+    const createVoice = (time, note, duration, type, gain, filterFrequency = 2400) => {
+      if (!audioContext || !master) return;
+
+      const oscillator = audioContext.createOscillator();
+      const filter = audioContext.createBiquadFilter();
+      const envelope = audioContext.createGain();
+      const frequency = noteToFrequency(note);
+
+      oscillator.type = type;
+      oscillator.frequency.setValueAtTime(frequency, time);
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(filterFrequency, time);
+      filter.Q.setValueAtTime(2.5, time);
+      envelope.gain.setValueAtTime(0.0001, time);
+      envelope.gain.exponentialRampToValueAtTime(gain, time + 0.025);
+      envelope.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+
+      oscillator.connect(filter);
+      filter.connect(envelope);
+      envelope.connect(master);
+      oscillator.start(time);
+      oscillator.stop(time + duration + 0.04);
+    };
+
+    const createNoiseSweep = (time) => {
+      if (!audioContext || !master) return;
+
+      const bufferSize = audioContext.sampleRate * 1.8;
+      const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+      }
+
+      const source = audioContext.createBufferSource();
+      const filter = audioContext.createBiquadFilter();
+      const envelope = audioContext.createGain();
+
+      source.buffer = buffer;
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(320, time);
+      filter.frequency.exponentialRampToValueAtTime(4200, time + 1.4);
+      filter.Q.setValueAtTime(7, time);
+      envelope.gain.setValueAtTime(0.0001, time);
+      envelope.gain.exponentialRampToValueAtTime(0.11, time + 0.18);
+      envelope.gain.exponentialRampToValueAtTime(0.0001, time + 1.6);
+
+      source.connect(filter);
+      filter.connect(envelope);
+      envelope.connect(master);
+      source.start(time);
+      source.stop(time + 1.8);
+    };
+
+    const startMusic = async () => {
+      try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) {
+          setAudioBlocked(true);
+          return;
+        }
+
+        audioContext = takePrimedDemosceneAudio() || new AudioContext();
+        await audioContext.resume();
+
+        master = audioContext.createGain();
+        master.gain.setValueAtTime(0.0001, audioContext.currentTime);
+        master.gain.exponentialRampToValueAtTime(0.18, audioContext.currentTime + 0.9);
+        master.connect(audioContext.destination);
+
+        const bass = [33, 33, 40, 33, 31, 31, 38, 31];
+        const arp = [57, 64, 69, 76, 71, 69, 64, 60, 55, 62, 67, 74, 69, 67, 62, 59];
+        const lead = [81, 79, 76, 79, 84, 83, 79, 76];
+        let step = 0;
+
+        const schedule = () => {
+          if (stopped || !audioContext) return;
+          const time = audioContext.currentTime + 0.045;
+          const beat = step % 16;
+
+          createVoice(time, bass[step % bass.length], 0.42, 'sawtooth', 0.08, 520);
+          createVoice(time, arp[step % arp.length], 0.16, 'square', 0.045, 2400);
+
+          if (beat % 4 === 0) {
+            createVoice(time, lead[Math.floor(step / 4) % lead.length], 0.68, 'triangle', 0.055, 3600);
+          }
+
+          if (beat === 0 || beat === 8) {
+            createNoiseSweep(time);
+          }
+
+          step += 1;
+          stepTimer = window.setTimeout(schedule, 185);
+        };
+
+        sweepTimer = window.setTimeout(() => createNoiseSweep(audioContext.currentTime), 3200);
+        schedule();
+        audioRef.current = {
+          stop: () => {
+            stopped = true;
+            window.clearTimeout(stepTimer);
+            window.clearTimeout(sweepTimer);
+            if (master && audioContext) {
+              const now = audioContext.currentTime;
+              master.gain.cancelScheduledValues(now);
+              master.gain.setValueAtTime(Math.max(master.gain.value, 0.0001), now);
+              master.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+            }
+            window.setTimeout(() => {
+              audioContext?.close().catch(() => {});
+            }, 220);
+          },
+        };
+      } catch {
+        setAudioBlocked(true);
+      }
+    };
+
+    startMusic();
+
+    return () => {
+      stopped = true;
+      window.clearTimeout(stepTimer);
+      window.clearTimeout(sweepTimer);
+      audioRef.current?.stop();
+      audioRef.current = null;
+    };
+  }, []);
+
+  const handleClose = () => {
+    audioRef.current?.stop();
+    audioRef.current = null;
+    onClose();
+  };
 
   return (
-    <div className="demoscene-overlay" onClick={onClose}>
+    <div className="demoscene-overlay" onClick={handleClose}>
       <canvas ref={canvasRef} className="demoscene-canvas" />
-      
+
       <div className={`demoscene-content ${showText ? 'visible' : ''}`}>
         <div className="demoscene-logo">
           <img
@@ -377,19 +519,23 @@ export default function DemosceneEasterEgg({ onClose }) {
           <span className="glitch" data-text="ARTEUS">ARTEUS</span>
         </h1>
         <p className="demoscene-subtitle">
-          We're building AI assistants that aren't afraid to break the rules
+          We're building AI assistants that aren't afraid to cross the event horizon
         </p>
         <div className="demoscene-hint">
           <span className="blink">[</span> PRESS ESC OR CLICK TO EXIT <span className="blink">]</span>
         </div>
+        {audioBlocked && (
+          <div className="demoscene-audio-note">
+            AUDIO SYSTEM MUTED BY BROWSER
+          </div>
+        )}
       </div>
 
       <div className="demoscene-credits">
-        <span>64K INTRO</span>
+        <span>WARP DRIVE</span>
         <span className="separator">///</span>
-        <span>ARTEUS CREW 2025</span>
+        <span>BLACK HOLE INTRO 2026</span>
       </div>
     </div>
   );
 }
-

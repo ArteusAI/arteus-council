@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { getModelDisplayName } from './modelDisplay';
+import { formatResponseMarkdown } from './responseMarkdown';
 
 let fontsLoaded = false;
 let fontDataRegular = null;
@@ -446,7 +447,7 @@ function renderResponsesSection(doc, y, title, stageData, pageHeight, marginLeft
     y += 7;
 
     doc.setTextColor(0, 0, 0);
-    y = renderMarkdownToPdf(doc, item.response || '', y, stageMdConfig);
+    y = renderMarkdownToPdf(doc, formatResponseMarkdown(item.response), y, stageMdConfig);
     y += 8;
   }
 
@@ -596,7 +597,7 @@ export async function exportCouncilToPdf(userQuestion, assistantMessage, t) {
     y += 8;
 
     doc.setTextColor(0, 0, 0);
-    y = renderMarkdownToPdf(doc, assistantMessage.stage3.response, y, mdConfig);
+    y = renderMarkdownToPdf(doc, formatResponseMarkdown(assistantMessage.stage3.response), y, mdConfig);
   }
 
   // --- PAGE 2+: Details ---

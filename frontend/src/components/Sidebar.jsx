@@ -1,7 +1,9 @@
 import { useState, useRef } from 'react';
 import './Sidebar.css';
 import DemosceneEasterEgg from './DemosceneEasterEgg';
+import LogoBurst from './LogoBurst';
 import PersonalizationSettings from './PersonalizationSettings';
+import { primeDemosceneAudio } from '../utils/demosceneAudio';
 
 export default function Sidebar({
   conversations,
@@ -20,11 +22,16 @@ export default function Sidebar({
   onLogout,
 }) {
   const [showEasterEgg, setShowEasterEgg] = useState(false);
+  const [showLogoBurst, setShowLogoBurst] = useState(false);
   const [showPersonalization, setShowPersonalization] = useState(false);
   const clickCountRef = useRef(0);
   const clickTimerRef = useRef(null);
 
   const handleLogoClick = () => {
+    if (showLogoBurst || showEasterEgg) {
+      return;
+    }
+
     clickCountRef.current += 1;
 
     if (clickTimerRef.current) {
@@ -33,7 +40,8 @@ export default function Sidebar({
 
     if (clickCountRef.current >= 3) {
       clickCountRef.current = 0;
-      setShowEasterEgg(true);
+      primeDemosceneAudio();
+      setShowLogoBurst(true);
       return;
     }
 
@@ -63,6 +71,14 @@ export default function Sidebar({
 
   return (
     <div className={`sidebar ${isOpen ? 'open' : ''}`}>
+      {showLogoBurst && (
+        <LogoBurst
+          onComplete={() => {
+            setShowLogoBurst(false);
+            setShowEasterEgg(true);
+          }}
+        />
+      )}
       {showEasterEgg && (
         <DemosceneEasterEgg onClose={() => setShowEasterEgg(false)} />
       )}

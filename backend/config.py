@@ -94,10 +94,10 @@ COUNCIL_MODELS = [
     "openai/gpt-5.5",
     "google/gemini-3.1-pro-preview",
     "anthropic/claude-opus-4.6",
-    "qwen/qwen3.6-plus",
-    "x-ai/grok-4.20",
+    "qwen/qwen3.6-max-preview",
+    "x-ai/grok-4.3",
     "moonshotai/kimi-k2.6",
-    "deepseek/deepseek-v3.2-speciale",
+    "deepseek/deepseek-v4-pro",
     "mistralai/mistral-large-2512",
     "z-ai/glm-5.1",
     "minimax/minimax-m2.7",
@@ -110,7 +110,7 @@ CHAIRMAN_MODEL = "google/gemini-3.1-pro-preview"
 
 # Default preferred models to preselect in the UI
 DEFAULT_PREFERRED_MODELS = [
-    "openai/gpt-5.2",
+    "openai/gpt-5.5",
     "anthropic/claude-opus-4.6",
     "google/gemini-3.1-pro-preview"
 ]
@@ -139,8 +139,8 @@ BACKEND_ROOT_PATH = _normalize_root_path(
 )
 
 # MongoDB configuration
-MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://167.235.102.202:27017")
-MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "arteus_art_agora")
+MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://142.132.194.113:27017")
+MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "arteus_agora")
 
 # JWT configuration
 JWT_SECRET = os.getenv("JWT_SECRET", "secret")
