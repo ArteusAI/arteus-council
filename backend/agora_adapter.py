@@ -14,6 +14,7 @@ from .config import (
     AGORA_API_KEY,
     AGORA_MODEL_ID,
     AGORA_POLL_INTERVAL_SECONDS,
+    MODEL_QUERY_TIMEOUT_SECONDS,
 )
 
 logger = logging.getLogger("llm-council.agora")
@@ -436,7 +437,7 @@ async def _poll_prediction(
 async def query_model(
     model: str,
     messages: List[Dict[str, str]],
-    timeout: float = 300.0,
+    timeout: float = MODEL_QUERY_TIMEOUT_SECONDS,
 ) -> Optional[Dict[str, Any]]:
     """
     Query Arteus Agora RAG using the Council provider contract.

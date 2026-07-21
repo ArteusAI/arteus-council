@@ -45,6 +45,7 @@ sys.modules.setdefault("httpx", httpx_module)
 
 from backend import storage
 from backend.agora_eval_files import resolve_eval_file
+from backend.config import PEER_EVALUATION_TIMEOUT_SECONDS
 from backend.council import (
     get_peer_ranking_models,
     is_valid_agora_evaluation,
@@ -138,7 +139,7 @@ class CouncilSecondRoundTests(unittest.IsolatedAsyncioTestCase):
             max_attempts=1,
         ):
             self.assertEqual(set(model_messages), {"agora/rag", "openai/example"})
-            self.assertEqual(timeout, 300.0)
+            self.assertEqual(timeout, PEER_EVALUATION_TIMEOUT_SECONDS)
             self.assertTrue(callable(validate_response))
             self.assertEqual(max_attempts, 3)
 

@@ -10,6 +10,33 @@
   background: radial-gradient(circle at 50% 42%, #071226 0%, #020611 46%, #000 100%);
 }
 
+/* Noclip flash shown right before the backrooms phase */
+.demoscene-overlay.backrooms-flash::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      rgba(245, 233, 184, 0.22) 0px,
+      rgba(245, 233, 184, 0.22) 2px,
+      transparent 2px,
+      transparent 5px
+    ),
+    rgba(214, 197, 120, 0.85);
+  animation: backrooms-noclip-flash 0.8s steps(6, end) forwards;
+}
+
+@keyframes backrooms-noclip-flash {
+  0% { opacity: 0; transform: translateY(0) scaleY(1); }
+  20% { opacity: 1; transform: translateY(-6px) scaleY(1.01); }
+  45% { opacity: 0.4; transform: translateY(4px); }
+  70% { opacity: 1; transform: translateY(-2px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
 .demoscene-canvas {
   position: absolute;
   top: 0;

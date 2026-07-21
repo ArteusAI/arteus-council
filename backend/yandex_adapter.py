@@ -4,7 +4,7 @@ import logging
 import time
 import httpx
 from typing import List, Dict, Any, Optional
-from .config import YANDEX_API_KEY, YANDEX_FOLDER_ID
+from .config import YANDEX_API_KEY, YANDEX_FOLDER_ID, MODEL_QUERY_TIMEOUT_SECONDS
 
 logger = logging.getLogger("llm-council.yandex")
 
@@ -12,7 +12,7 @@ logger = logging.getLogger("llm-council.yandex")
 async def query_model(
     model: str,
     messages: List[Dict[str, str]],
-    timeout: float = 300.0
+    timeout: float = MODEL_QUERY_TIMEOUT_SECONDS
 ) -> Optional[Dict[str, Any]]:
     """
     Query a YandexGPT model with the given messages.

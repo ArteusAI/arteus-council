@@ -10,7 +10,14 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import storage
-from .config import COUNCIL_MODELS
+from .attachments import (
+    build_agora_attachment_block,
+    build_inline_attachment_block,
+    cleanup_attachment_files,
+    create_attachment_files,
+    normalize_attachments,
+)
+from .config import COUNCIL_MODELS, FIRECRAWL_API_KEY
 from .council import (
     build_label_to_model,
     build_round_metadata,
@@ -18,6 +25,7 @@ from .council import (
     calculate_second_round_status,
     generate_conversation_title,
     get_peer_ranking_models,
+    is_agora_model,
     select_second_round_finalists,
     stage1_collect_responses,
     stage1_collect_revised_responses,
@@ -57,15 +65,22 @@ def build_enriched_content_from_saved_links(
     return "".join(enriched_parts)
 
 
-def get_continuation_context(conversation: Dict[str, Any]) -> Dict[str, Any]:
-    """Load the saved round-1 data needed to continue with the next round."""
+def get_continuation_context(
+    conversation: Dict[str, Any],
+    for_retry_stage3: bool = False,
+) -> Dict[str, Any]:
+    """Load the saved round-1 data needed to continue with the next round.
+
+    When for_retry_stage3 is True the second_round_enabled guard is skipped
+    so that stage 3 can be retried even after a completed second round.
+    """
     messages = conversation.get("messages") or []
     if not messages or messages[-1].get("role") != "assistant":
         raise ValueError("Next round can only start from the latest assistant result.")
 
     assistant_message = messages[-1]
     assistant_metadata = assistant_message.get("metadata") or {}
-    if assistant_metadata.get("second_round_enabled"):
+    if assistant_metadata.get("second_round_enabled") and not for_retry_stage3:
         raise ValueError("The latest assistant result already includes the next round.")
 
     user_message = None
@@ -103,6 +118,7 @@ def get_continuation_context(conversation: Dict[str, Any]) -> Dict[str, Any]:
         build_round_payload(1, stage1_results, stage2_results, round1_metadata)
     ]
     scraped_links = assistant_message.get("scrapedLinks") or []
+    attachments = user_message.get("attachments") or []
 
     return {
         "user_content": user_message["content"],
@@ -113,6 +129,7 @@ def get_continuation_context(conversation: Dict[str, Any]) -> Dict[str, Any]:
         "round1_metadata": round1_metadata,
         "rounds": persisted_rounds,
         "scraped_links": scraped_links,
+        "attachments": attachments,
         "enriched_content": build_enriched_content_from_saved_links(
             user_message["content"],
             scraped_links,
@@ -199,6 +216,7 @@ class CouncilJob:
         self.subscribers: set[asyncio.Queue] = set()
         self.terminal_event: Dict[str, Any] | None = None
         self.user_message: Dict[str, Any] | None = None
+        self._attachment_workspace: Tuple[str | None, str | None] | None = None
         self.assistant_message = build_runtime_assistant_message(
             bool(request_payload.get("enable_second_round"))
         )
@@ -222,6 +240,15 @@ class CouncilJob:
                 for round_payload in self.assistant_message.get("rounds", [])
                 if round_payload.get("round") == 1
             ]
+        elif request_payload.get("retry_stage3"):
+            # Retry only the chairman synthesis, keeping stage1/stage2/rounds.
+            context = get_continuation_context(conversation, for_retry_stage3=True)
+            self.user_message = copy.deepcopy(context["user_message"])
+            self.assistant_message = ensure_runtime_assistant_message(
+                copy.deepcopy(context["assistant_message"])
+            )
+            self.assistant_message["stage3"] = None
+            self.assistant_message["loading"]["stage3"] = True
             self.assistant_message["loading"]["round2Stage1"] = True
             self.assistant_message["progress"]["round2Stage1"] = {
                 "completed": [],
@@ -412,6 +439,42 @@ class CouncilJob:
                 exc,
             )
             self._mark_failed(str(exc))
+        finally:
+            self._cleanup_attachment_workspace()
+
+    def _cleanup_attachment_workspace(self) -> None:
+        """Remove temporary Agora attachment files best-effort."""
+        workspace = self._attachment_workspace
+        self._attachment_workspace = None
+        if workspace:
+            cleanup_attachment_files(workspace[0], workspace[1])
+
+    def _prepare_attachment_queries(
+        self,
+        base_content: str,
+        attachments: List[Dict[str, Any]] | None,
+        candidate_models: List[str],
+    ) -> Tuple[str, str]:
+        """
+        Build query variants with attachment blocks applied.
+
+        Returns (standard_query, agora_query): standard has inline
+        <attached_file> blocks, the Agora variant references hosted file
+        URLs instead so Agora fetches them as proper attachments.
+        """
+        normalized = normalize_attachments(attachments or [])
+        if not normalized:
+            return base_content, base_content
+
+        standard_query = base_content + build_inline_attachment_block(normalized)
+        agora_query = standard_query
+
+        if any(is_agora_model(model) for model in candidate_models):
+            token, tmp_dir, file_urls = create_attachment_files(normalized)
+            self._attachment_workspace = (token, tmp_dir)
+            agora_query = base_content + build_agora_attachment_block(file_urls)
+
+        return standard_query, agora_query
 
     async def _run_workflow(self) -> None:
         request = self.request_payload
@@ -419,8 +482,96 @@ class CouncilJob:
         chairman_to_use = request.get("chairman_model") or None
         language = request.get("language")
         should_continue = bool(request.get("continue_last_assistant_round"))
+        should_retry_stage3 = bool(request.get("retry_stage3"))
         should_run_next_round = bool(request.get("enable_second_round")) or should_continue
         title_task: asyncio.Task | None = None
+
+        if should_retry_stage3:
+            conversation = storage.get_conversation(self.user_id, self.conversation_id)
+            if conversation is None:
+                raise ValueError("Conversation not found")
+            continuation_context = get_continuation_context(
+                conversation, for_retry_stage3=True
+            )
+            enriched_content = continuation_context["enriched_content"]
+            link_metadata = continuation_context["scraped_links"]
+            stage1_results = continuation_context["stage1_results"]
+            stage2_results = continuation_context["stage2_results"]
+            round1_metadata = continuation_context["round1_metadata"]
+            rounds = list(continuation_context["rounds"])
+            continuation_models = [
+                item["model"] for item in stage1_results if item.get("model")
+            ]
+            enriched_content, agora_enriched_content = self._prepare_attachment_queries(
+                enriched_content,
+                continuation_context["attachments"],
+                continuation_models,
+            )
+
+            round2_payload = next(
+                (r for r in rounds if r.get("round") == 2), None
+            )
+            round2_stage1_results = (round2_payload or {}).get("stage1") or []
+            round2_stage2_results = (round2_payload or {}).get("stage2") or []
+            round2_metadata = (round2_payload or {}).get("metadata")
+            finalists = (round2_metadata or {}).get("round2_finalists") or []
+
+            self._set_stage("stage3")
+            self.assistant_message["loading"]["stage3"] = True
+            self.publish({"type": "stage3_start"})
+
+            stage3_result = await stage3_synthesize_final(
+                enriched_content,
+                stage1_results,
+                stage2_results,
+                chairman_model=chairman_to_use,
+                language=language,
+                personal_prompt=self.personal_prompt,
+                base_system_prompt=self.base_system_prompt,
+                round2_stage1_results=round2_stage1_results,
+                round2_stage2_results=round2_stage2_results,
+                round2_finalists=finalists,
+            )
+
+            metadata = {
+                "label_to_model": round1_metadata["label_to_model"],
+                "aggregate_rankings": round1_metadata["aggregate_rankings"],
+                "second_round_enabled": bool(round2_payload),
+                "second_round_status": "completed" if round2_payload else "skipped",
+                "round2_finalists": finalists,
+                "round2": round2_metadata,
+            }
+            self.assistant_message["stage3"] = stage3_result
+            self.assistant_message["metadata"] = metadata
+            self.assistant_message["rounds"] = rounds
+            self.assistant_message["loading"]["stage3"] = False
+            self.publish(
+                {
+                    "type": "stage3_complete",
+                    "data": stage3_result,
+                    "metadata": metadata,
+                    "rounds": rounds,
+                }
+            )
+
+            saved_message = {
+                "role": "assistant",
+                "stage1": stage1_results,
+                "stage2": stage2_results,
+                "stage3": stage3_result,
+                "metadata": metadata,
+                "rounds": rounds,
+                "scrapedLinks": link_metadata,
+            }
+            storage.update_last_assistant_message(
+                self.user_id, self.conversation_id, saved_message
+            )
+
+            logger.info("[%s] Stage 3 retry complete", self.conversation_id[:8])
+            self._mark_completed(
+                {"type": "complete", "metadata": metadata, "rounds": rounds}
+            )
+            return
 
         if should_continue:
             conversation = storage.get_conversation(self.user_id, self.conversation_id)
@@ -433,16 +584,35 @@ class CouncilJob:
             stage2_results = continuation_context["stage2_results"]
             round1_metadata = continuation_context["round1_metadata"]
             rounds = list(continuation_context["rounds"])
+            continuation_models = [
+                item["model"] for item in stage1_results if item.get("model")
+            ]
+            enriched_content, agora_enriched_content = self._prepare_attachment_queries(
+                enriched_content,
+                continuation_context["attachments"],
+                continuation_models,
+            )
             logger.info(
                 "[%s] Continuing next round from saved assistant result",
                 self.conversation_id[:8],
             )
         else:
             content = request.get("content") or ""
+            attachments = normalize_attachments(request.get("attachments") or [])
             self.user_message = {"role": "user", "content": content}
-            storage.add_user_message(self.user_id, self.conversation_id, content)
+            if attachments:
+                self.user_message["attachments"] = [
+                    {"name": item["name"], "content": item["content"]}
+                    for item in attachments
+                ]
+            storage.add_user_message(
+                self.user_id,
+                self.conversation_id,
+                content,
+                attachments=attachments,
+            )
 
-            urls = extract_urls(content)
+            urls = extract_urls(content) if FIRECRAWL_API_KEY else []
             enriched_content = content
             link_metadata = []
 
@@ -467,6 +637,12 @@ class CouncilJob:
 
             if self.is_first_message:
                 title_task = asyncio.create_task(generate_conversation_title(content))
+
+            enriched_content, agora_enriched_content = self._prepare_attachment_queries(
+                enriched_content,
+                attachments,
+                models_to_use or COUNCIL_MODELS,
+            )
 
             self._set_stage("stage1")
             completed_stage1_models: List[str] = []
@@ -494,6 +670,7 @@ class CouncilJob:
                 language=language,
                 base_system_prompt=self.base_system_prompt,
                 on_model_complete=stage1_callback,
+                agora_user_query=agora_enriched_content,
             )
             self.assistant_message["stage1"] = stage1_results
             self.assistant_message["loading"]["stage1"] = False
@@ -526,6 +703,7 @@ class CouncilJob:
                 language=language,
                 base_system_prompt=self.base_system_prompt,
                 on_model_complete=stage2_callback,
+                agora_user_query=agora_enriched_content,
             )
             round1_metadata = build_round_metadata(stage2_results, label_to_model)
             rounds = [build_round_payload(1, stage1_results, stage2_results, round1_metadata)]
@@ -598,6 +776,7 @@ class CouncilJob:
                         language=language,
                         base_system_prompt=self.base_system_prompt,
                         on_model_complete=round2_stage1_callback,
+                        agora_user_query=agora_enriched_content,
                     )
                     self.assistant_message["loading"]["round2Stage1"] = False
                     round1_payload = self.assistant_message.get("rounds", rounds)[0]
@@ -661,6 +840,7 @@ class CouncilJob:
                                 language=language,
                                 base_system_prompt=self.base_system_prompt,
                                 on_model_complete=round2_stage2_callback,
+                                agora_user_query=agora_enriched_content,
                             )
 
                         round2_metadata = build_round_metadata(
@@ -813,9 +993,9 @@ class CouncilJobManager:
                 if existing:
                     return existing
                 raise JobNotFoundError("No active job for this conversation")
-            if not request_payload.get("continue_last_assistant_round") and not (
+            if not request_payload.get("continue_last_assistant_round") and not request_payload.get("retry_stage3") and not (
                 request_payload.get("content") or ""
-            ).strip():
+            ).strip() and not (request_payload.get("attachments") or []):
                 raise JobConflictError("Message content is required")
 
             job = CouncilJob(

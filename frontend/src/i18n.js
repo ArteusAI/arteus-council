@@ -64,6 +64,7 @@ export const translations = {
     exportPdf: 'Export report to PDF',
     copyMarkdown: 'Copy report to Markdown',
     runNextRound: 'Run next round',
+    retryStage3: 'Retry',
     copyAnswer: 'Copy answer',
     copiedToClipboard: 'Copied!',
     deleteChat: 'Delete',
@@ -107,6 +108,14 @@ export const translations = {
     basePromptArteus: 'Default (Arteus)',
     basePromptCustom: 'Custom Identity',
     close: 'Close',
+    attachFiles: 'Attach .md files',
+    attachmentOnlyMd: 'Only .md files. "{name}" is not markdown. Save it as .md and come back.',
+    attachmentTooLarge:
+      "Don't be greedy. Attachments are ~200 000 tokens max in total, you have ~{tokens}. Top models run at max thinking effort — every token is expensively deliberated. Trim the files and come back.",
+    attachmentTokens: '~{tokens} tokens',
+    attachmentDuplicate: '"{name}" is already attached.',
+    attachmentReadError: 'Could not read "{name}". The file may be too large or inaccessible.',
+    dropHere: 'Drop .md files here',
   },
   ru: {
     appName: 'Дружина Артеус',
@@ -172,6 +181,7 @@ export const translations = {
     exportPdf: 'Экспорт отчета в PDF',
     copyMarkdown: 'Копировать отчет в Markdown',
     runNextRound: 'Запустить следующий круг',
+    retryStage3: 'Повторить',
     copyAnswer: 'Копировать ответ',
     copiedToClipboard: 'Скопировано!',
     deleteChat: 'Удалить',
@@ -215,6 +225,14 @@ export const translations = {
     basePromptArteus: 'По умолчанию (Arteus)',
     basePromptCustom: 'Своя личность',
     close: 'Закрыть',
+    attachFiles: 'Приложить .md файлы',
+    attachmentOnlyMd: 'Только .md файлы. «{name}» — не markdown. Пересохрани как .md и приходи.',
+    attachmentTooLarge:
+      'Не жируй. Вложения — максимум ~200 000 токенов суммарно, у тебя вышло ~{tokens}. Топ-модели работают на max thinking effort — каждый токен дорого обдумывается. Урежь файлы и приходи заново.',
+    attachmentTokens: '~{tokens} токенов',
+    attachmentDuplicate: '«{name}» уже приложен.',
+    attachmentReadError: 'Не удалось прочитать «{name}». Файл слишком большой или недоступен.',
+    dropHere: 'Брось .md файлы сюда',
   },
   el: {
     appName: 'Arteus Council',
@@ -280,6 +298,7 @@ export const translations = {
     exportPdf: 'Εξαγωγή αναφοράς σε PDF',
     copyMarkdown: 'Αντιγραφή αναφοράς σε Markdown',
     runNextRound: 'Εκκίνηση επόμενου γύρου',
+    retryStage3: 'Επανάληψη',
     copyAnswer: 'Αντιγραφή απάντησης',
     copiedToClipboard: 'Αντιγράφηκε!',
     deleteChat: 'Διαγραφή',
@@ -323,6 +342,14 @@ export const translations = {
     basePromptArteus: 'Προεπιλογή (Arteus)',
     basePromptCustom: 'Προσαρμοσμένη ταυτότητα',
     close: 'Κλείσιμο',
+    attachFiles: 'Επισύναψη αρχείων .md',
+    attachmentOnlyMd: 'Μόνο αρχεία .md. Το "{name}" δεν είναι markdown. Αποθήκευσέ το ως .md και ξαναέλα.',
+    attachmentTooLarge:
+      'Μην το παρακάνεις. Τα συνημμένα είναι ~200 000 tokens συνολικά, εσύ έχεις ~{tokens}. Τα κορυφαία μοντέλα δουλεύουν σε max thinking effort — κάθε token σκεπτόμαστε ακριβά. Κούρεψε τα αρχεία και ξαναέλα.',
+    attachmentTokens: '~{tokens} tokens',
+    attachmentDuplicate: 'Το "{name}" είναι ήδη συνημμένο.',
+    attachmentReadError: 'Αδυναμία ανάγνωσης "{name}". Το αρχείο είναι πολύ μεγάλο ή μη προσβάσιμο.',
+    dropHere: 'Ρίξε αρχεία .md εδώ',
   },
 };
 

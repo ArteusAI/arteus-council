@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 from gigachat import GigaChat
 from gigachat.models import Chat, Messages
 
-from .config import GIGACHAT_CREDENTIALS, GIGACHAT_SCOPE, GIGACHAT_VERIFY_SSL, GIGACHAT_PARALLEL_DISABLED
+from .config import GIGACHAT_CREDENTIALS, GIGACHAT_SCOPE, GIGACHAT_VERIFY_SSL, GIGACHAT_PARALLEL_DISABLED, MODEL_QUERY_TIMEOUT_SECONDS
 
 logger = logging.getLogger("llm-council.gigachat")
 
@@ -18,7 +18,7 @@ _gigachat_lock = asyncio.Lock()
 async def query_model(
     model: str,
     messages: List[Dict[str, str]],
-    timeout: float = 300.0
+    timeout: float = MODEL_QUERY_TIMEOUT_SECONDS
 ) -> Optional[Dict[str, Any]]:
     """
     Query a GigaChat model with the given messages.

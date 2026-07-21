@@ -12,7 +12,7 @@ from .agora_eval_files import (
     cleanup_eval_workspace,
     create_eval_workspace,
 )
-from .config import CHAIRMAN_MODEL, COUNCIL_MODELS, PEER_EVALUATION_TIMEOUT_SECONDS
+from .config import CHAIRMAN_MODEL, COUNCIL_MODELS, MODEL_QUERY_TIMEOUT_SECONDS, PEER_EVALUATION_TIMEOUT_SECONDS
 from .llm import query_model, query_models_parallel
 
 logger = logging.getLogger("llm-council.council")
@@ -437,7 +437,7 @@ def is_valid_peer_evaluation_response(
 async def query_model_messages_parallel(
     model_messages: Dict[str, List[Dict[str, str]]],
     on_model_complete: Optional[Any] = None,
-    timeout: float = 300.0,
+    timeout: float = MODEL_QUERY_TIMEOUT_SECONDS,
     validate_response: Optional[Callable[[str, Optional[Dict[str, Any]]], bool]] = None,
     max_attempts: int = 1,
 ) -> Dict[str, Optional[Dict[str, Any]]]:
@@ -539,6 +539,7 @@ async def stage1_collect_responses(
     language: str | None = None,
     base_system_prompt: str | None = None,
     on_model_complete: Optional[Any] = None,
+    agora_user_query: str | None = None,
 ) -> List[Dict[str, Any]]:
     """
     Stage 1: Collect individual responses from all council models.
@@ -549,6 +550,8 @@ async def stage1_collect_responses(
         language: Optional language preference
         base_system_prompt: Optional override for company context
         on_model_complete: Optional callback when a model completes
+        agora_user_query: Optional Agora-specific query variant (attachments
+            referenced by URL instead of inlined)
 
     Returns:
         List of dicts with 'model' and 'response' keys
@@ -561,11 +564,30 @@ async def stage1_collect_responses(
     messages = [{"role": "user", "content": prompt}]
     models_to_use = models or COUNCIL_MODELS
 
-    responses = await query_models_parallel(
-        models_to_use,
-        messages,
-        on_model_complete=on_model_complete,
-    )
+    has_agora_variant = bool(agora_user_query) and agora_user_query != user_query
+    agora_models = [model for model in models_to_use if is_agora_model(model)]
+
+    if has_agora_variant and agora_models:
+        agora_prompt = build_stage1_prompt(
+            agora_user_query,
+            language=language,
+            base_system_prompt=base_system_prompt,
+        )
+        agora_messages = [{"role": "user", "content": agora_prompt}]
+        model_messages = {
+            model: (agora_messages if is_agora_model(model) else messages)
+            for model in models_to_use
+        }
+        responses = await query_model_messages_parallel(
+            model_messages,
+            on_model_complete=on_model_complete,
+        )
+    else:
+        responses = await query_models_parallel(
+            models_to_use,
+            messages,
+            on_model_complete=on_model_complete,
+        )
 
     stage1_results = []
     for model, response in responses.items():
@@ -595,6 +617,7 @@ async def stage1_collect_revised_responses(
     language: str | None = None,
     base_system_prompt: str | None = None,
     on_model_complete: Optional[Any] = None,
+    agora_user_query: str | None = None,
 ) -> List[Dict[str, Any]]:
     """Collect second-round revised responses from the finalist models."""
     label_to_model = build_label_to_model(stage1_results)
@@ -603,9 +626,12 @@ async def stage1_collect_revised_responses(
     for model in finalist_models:
         if model not in {result["model"] for result in stage1_results}:
             continue
+        query_for_model = user_query
+        if agora_user_query and is_agora_model(model):
+            query_for_model = agora_user_query
         prompt = build_revision_prompt(
             model,
-            user_query,
+            query_for_model,
             stage1_results,
             stage2_results,
             label_to_model,
@@ -646,6 +672,7 @@ async def stage2_collect_rankings(
     language: str | None = None,
     base_system_prompt: str | None = None,
     on_model_complete: Optional[Any] = None,
+    agora_user_query: str | None = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
     """
     Stage 2: Each model ranks the anonymized responses.
@@ -656,6 +683,8 @@ async def stage2_collect_rankings(
         models: Optional override list of models to use for rankings
         base_system_prompt: Optional override for company context
         on_model_complete: Optional callback when a model completes
+        agora_user_query: Optional Agora-specific query variant (attachments
+            referenced by URL instead of inlined)
 
     Returns:
         Tuple of (rankings list, label_to_model mapping)
@@ -699,7 +728,7 @@ async def stage2_collect_rankings(
             label_to_model,
         )
         agora_prompt = build_agora_file_ranking_prompt(
-            user_query,
+            agora_user_query or user_query,
             agora_file_urls,
             language=language,
         )
@@ -1045,7 +1074,8 @@ Question: {user_query}
 Title:"""
 
     messages = [{"role": "user", "content": title_prompt}]
-    response = await query_model("google/gemini-2.5-flash", messages, timeout=30.0)
+    # Keep title generation fast and cheap: light reasoning, short timeout
+    response = await query_model("google/gemini-2.5-flash", messages, timeout=30.0, reasoning_effort="low")
 
     if response is None:
         return "New Conversation"
@@ -1065,6 +1095,7 @@ async def run_full_council(
     personal_prompt: str | None = None,
     base_system_prompt: str | None = None,
     enable_second_round: bool = False,
+    agora_user_query: str | None = None,
 ) -> Tuple[List, List, Dict, Dict, List]:
     """
     Run the complete council process.
@@ -1077,6 +1108,8 @@ async def run_full_council(
         personal_prompt: Optional user personalization prompt
         base_system_prompt: Optional override for company context
         enable_second_round: Whether to run the finalist rewrite/rerank loop
+        agora_user_query: Optional Agora-specific query variant (attachments
+            referenced by URL instead of inlined)
 
     Returns:
         Tuple of (stage1_results, stage2_results, stage3_result, metadata, rounds)
@@ -1086,6 +1119,7 @@ async def run_full_council(
         models=models,
         language=language,
         base_system_prompt=base_system_prompt,
+        agora_user_query=agora_user_query,
     )
 
     if not stage1_results:
@@ -1108,6 +1142,7 @@ async def run_full_council(
         models=models,
         language=language,
         base_system_prompt=base_system_prompt,
+        agora_user_query=agora_user_query,
     )
 
     round1_metadata = build_round_metadata(stage2_results, label_to_model)
@@ -1135,6 +1170,7 @@ async def run_full_council(
                     round1_metadata["aggregate_rankings"],
                     language=language,
                     base_system_prompt=base_system_prompt,
+                    agora_user_query=agora_user_query,
                 )
 
                 if round2_stage1_results:
@@ -1149,6 +1185,7 @@ async def run_full_council(
                             models=round2_ranking_models,
                             language=language,
                             base_system_prompt=base_system_prompt,
+                            agora_user_query=agora_user_query,
                         )
 
                     round2_metadata = build_round_metadata(

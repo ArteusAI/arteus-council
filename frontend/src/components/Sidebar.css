@@ -42,6 +42,21 @@
   transition: transform 0.3s ease;
 }
 
+/* Rare, very subtle wobble — still most of the time, gentle ±1.5° shake
+   for a moment every ~9 seconds. Disabled on hover so the flip still works. */
+.sidebar-brand:not(:hover) .sidebar-logo {
+  animation: logo-wobble 9s ease-in-out infinite;
+}
+
+@keyframes logo-wobble {
+  0%, 91%, 100% { transform: rotate(0deg); }
+  92.5% { transform: rotate(-1.5deg); }
+  94% { transform: rotate(1.5deg); }
+  95.5% { transform: rotate(-1deg); }
+  97% { transform: rotate(0.6deg); }
+  98.5% { transform: rotate(0deg); }
+}
+
 .sidebar-title {
   font-family: Cinzel, serif;
   font-size: 18px;

@@ -4,7 +4,12 @@ import httpx
 import time
 import logging
 from typing import List, Dict, Any, Optional
-from .config import OPENROUTER_API_KEY, OPENROUTER_API_URL
+from .config import (
+    MODEL_QUERY_TIMEOUT_SECONDS,
+    OPENROUTER_API_KEY,
+    OPENROUTER_API_URL,
+    OPENROUTER_REASONING_EFFORT,
+)
 
 logger = logging.getLogger("llm-council.openrouter")
 
@@ -12,15 +17,19 @@ logger = logging.getLogger("llm-council.openrouter")
 async def query_model(
     model: str,
     messages: List[Dict[str, str]],
-    timeout: float = 300.0
+    timeout: float = MODEL_QUERY_TIMEOUT_SECONDS,
+    reasoning_effort: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:
     """
-    Query a single model via OpenRouter API with high reasoning effort.
+    Query a single model via OpenRouter API with maximum reasoning effort.
 
     Args:
         model: OpenRouter model identifier (e.g., "openai/gpt-4o")
         messages: List of message dicts with 'role' and 'content'
         timeout: Request timeout in seconds
+        reasoning_effort: Override for the reasoning effort level
+            ("max", "xhigh", "high", "medium", "low", "minimal", "none").
+            Defaults to OPENROUTER_REASONING_EFFORT from config.
 
     Returns:
         Response dict with 'content' and optional 'reasoning_details', or None if failed
@@ -35,9 +44,8 @@ async def query_model(
         "temperature": 0.8,
         "messages": messages,
         "reasoning": {
-            "effort": "high"
-        },
-        "include_reasoning": True
+            "effort": reasoning_effort or OPENROUTER_REASONING_EFFORT
+        }
     }
 
     start_time = time.time()

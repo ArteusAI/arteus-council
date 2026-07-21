@@ -69,13 +69,20 @@ YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
 
 # Arteus Agora RAG credentials
 AGORA_API_KEY = os.getenv("AGORA_API_KEY")
-AGORA_API_BASE_URL = os.getenv("AGORA_API_BASE_URL", "https://api.arteus.tech/agora/v1").rstrip("/")
+AGORA_API_BASE_URL = os.getenv("AGORA_API_BASE_URL", "https://api.arteus-adm.ru/agora/v1").rstrip("/")
 AGORA_MODEL_ID = os.getenv("AGORA_MODEL_ID", "agora/rag")
 AGORA_POLL_INTERVAL_SECONDS = max(0.0, _parse_float_env("AGORA_POLL_INTERVAL_SECONDS", 1.0))
+# Timeout for any single model query (15 minutes)
+MODEL_QUERY_TIMEOUT_SECONDS = max(
+    1.0,
+    _parse_float_env("MODEL_QUERY_TIMEOUT_SECONDS", 900.0),
+)
 PEER_EVALUATION_TIMEOUT_SECONDS = max(
     1.0,
-    _parse_float_env("PEER_EVALUATION_TIMEOUT_SECONDS", 300.0),
+    _parse_float_env("PEER_EVALUATION_TIMEOUT_SECONDS", 900.0),
 )
+# Reasoning effort for OpenRouter models ("max", "xhigh", "high", "medium", "low", "minimal", "none")
+OPENROUTER_REASONING_EFFORT = os.getenv("OPENROUTER_REASONING_EFFORT", "max")
 COUNCIL_PUBLIC_BASE_URL = (
     os.getenv("COUNCIL_PUBLIC_BASE_URL")
     or os.getenv("PUBLIC_BASE_URL")
@@ -91,28 +98,28 @@ else:
 
 # Council members - list of provider model identifiers
 COUNCIL_MODELS = [
-    "openai/gpt-5.5",
-    "google/gemini-3.1-pro-preview",
-    "anthropic/claude-opus-4.6",
-    "qwen/qwen3.6-max-preview",
-    "x-ai/grok-4.3",
-    "moonshotai/kimi-k2.6",
+    "openai/gpt-5.6-sol",
+    "google/gemini-3.5-flash",
+    "anthropic/claude-fable-5",
+    "qwen/qwen3.7-max",
+    "x-ai/grok-4.5",
+    "moonshotai/kimi-k3",
     "deepseek/deepseek-v4-pro",
     "mistralai/mistral-large-2512",
-    "z-ai/glm-5.1",
+    "z-ai/glm-5.2",
     "minimax/minimax-m2.7",
     "yandex/aliceai-llm",
+    "thinkingmachines/inkling",
     AGORA_MODEL_ID
 ]
 
 # Chairman model - synthesizes final response
-CHAIRMAN_MODEL = "google/gemini-3.1-pro-preview"
+CHAIRMAN_MODEL = "google/gpt-5.6-sol"
 
 # Default preferred models to preselect in the UI
 DEFAULT_PREFERRED_MODELS = [
-    "openai/gpt-5.5",
-    "anthropic/claude-opus-4.6",
-    "google/gemini-3.1-pro-preview"
+    "openai/gpt-5.6-sol",
+    "google/gemini-3.5-flash"
 ]
 
 # OpenRouter API endpoint

@@ -41,8 +41,17 @@ from .config import (
     PERSONALIZATION_TEMPLATES,
     COUNCIL_IDENTITY_TEMPLATES,
 )
+from .attachments import (
+    build_agora_attachment_block,
+    build_inline_attachment_block,
+    cleanup_attachment_files,
+    create_attachment_files,
+    normalize_attachments,
+    validate_attachments,
+)
 from .council import (
     generate_conversation_title,
+    is_agora_model,
     run_full_council,
 )
 from .firecrawl import process_message_links
@@ -92,15 +101,23 @@ class CreateConversationRequest(BaseModel):
     pass
 
 
+class AttachmentIn(BaseModel):
+    """A file attachment sent with a message."""
+    name: str
+    content: str
+
+
 class SendMessageRequest(BaseModel):
     """Request to send a message in a conversation."""
     content: str = ""
+    attachments: List[AttachmentIn] | None = None
     models: List[str] | None = None
     chairman_model: str | None = None
     language: str | None = None
     base_system_prompt: str | None = None
     enable_second_round: bool = False
     continue_last_assistant_round: bool = False
+    retry_stage3: bool = False
     attach_only: bool = False
 
 
@@ -330,6 +347,19 @@ async def delete_all_conversations(user: User = Depends(get_current_user)):
     return {"deleted_count": count}
 
 
+def _validated_attachments(request: "SendMessageRequest") -> List[dict]:
+    """Normalize and validate request attachments, raising HTTP 400 on failure."""
+    attachments = normalize_attachments([
+        {"name": item.name, "content": item.content}
+        for item in (request.attachments or [])
+    ])
+    try:
+        validate_attachments(attachments)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return attachments
+
+
 @router.post("/api/conversations/{conversation_id}/message")
 async def send_message(conversation_id: str, request: SendMessageRequest, user: User = Depends(get_current_user)):
     """
@@ -344,7 +374,8 @@ async def send_message(conversation_id: str, request: SendMessageRequest, user: 
 
     if request.models is not None and len(request.models) == 0:
         raise HTTPException(status_code=400, detail="At least one model must be selected.")
-    if not request.content.strip():
+    attachments = _validated_attachments(request)
+    if not request.content.strip() and not attachments:
         raise HTTPException(status_code=400, detail="Message content is required.")
 
     # Check if conversation exists
@@ -358,52 +389,67 @@ async def send_message(conversation_id: str, request: SendMessageRequest, user: 
     # Get user's council settings
     council_settings = await get_user_council_settings(user.user_id)
     personal_prompt = council_settings.get("personal_prompt", "")
-    
+
     # Use request base_system_prompt if provided, otherwise use user's saved one, otherwise None (which will fallback to default)
     base_system_prompt = request.base_system_prompt or council_settings.get("base_system_prompt")
 
     # Add user message
-    storage.add_user_message(user.user_id, conversation_id, request.content)
+    storage.add_user_message(user.user_id, conversation_id, request.content, attachments=attachments)
 
     # Process links in message
     enriched_content, link_metadata, scrape_status = await process_message_links(request.content)
 
-    # If this is the first message, generate a title
-    if is_first_message:
-        title = await generate_conversation_title(request.content)
-        storage.update_conversation_title(user.user_id, conversation_id, title)
+    # Build attachment-aware query variants: inline blocks for standard
+    # models, hosted file URLs for Agora (fetched as proper attachments)
+    standard_query = enriched_content + build_inline_attachment_block(attachments)
+    agora_query = standard_query
+    attachment_token = None
+    attachment_tmp_dir = None
+    models_for_query = request.models or COUNCIL_MODELS
+    if attachments and any(is_agora_model(model) for model in models_for_query):
+        attachment_token, attachment_tmp_dir, file_urls = create_attachment_files(attachments)
+        agora_query = enriched_content + build_agora_attachment_block(file_urls)
 
-    # Run the 3-stage council process
-    stage1_results, stage2_results, stage3_result, metadata, rounds = await run_full_council(
-        enriched_content,
-        models=request.models,
-        chairman_model=request.chairman_model,
-        language=request.language,
-        personal_prompt=personal_prompt,
-        base_system_prompt=base_system_prompt,
-        enable_second_round=request.enable_second_round,
-    )
+    try:
+        # If this is the first message, generate a title
+        if is_first_message:
+            title = await generate_conversation_title(request.content)
+            storage.update_conversation_title(user.user_id, conversation_id, title)
 
-    # Add assistant message with all stages
-    storage.add_assistant_message(
-        user.user_id,
-        conversation_id,
-        stage1_results,
-        stage2_results,
-        stage3_result,
-        metadata=metadata,
-        rounds=rounds,
-        scraped_links=link_metadata,
-    )
+        # Run the 3-stage council process
+        stage1_results, stage2_results, stage3_result, metadata, rounds = await run_full_council(
+            standard_query,
+            models=request.models,
+            chairman_model=request.chairman_model,
+            language=request.language,
+            personal_prompt=personal_prompt,
+            base_system_prompt=base_system_prompt,
+            enable_second_round=request.enable_second_round,
+            agora_user_query=agora_query,
+        )
 
-    # Return the complete response with metadata
-    return {
-        "stage1": stage1_results,
-        "stage2": stage2_results,
-        "stage3": stage3_result,
-        "metadata": metadata,
-        "rounds": rounds,
-    }
+        # Add assistant message with all stages
+        storage.add_assistant_message(
+            user.user_id,
+            conversation_id,
+            stage1_results,
+            stage2_results,
+            stage3_result,
+            metadata=metadata,
+            rounds=rounds,
+            scraped_links=link_metadata,
+        )
+
+        # Return the complete response with metadata
+        return {
+            "stage1": stage1_results,
+            "stage2": stage2_results,
+            "stage3": stage3_result,
+            "metadata": metadata,
+            "rounds": rounds,
+        }
+    finally:
+        cleanup_attachment_files(attachment_token, attachment_tmp_dir)
 
 
 @router.post("/api/conversations/{conversation_id}/message/stream")
@@ -413,6 +459,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest,
     """
     if request.models is not None and len(request.models) == 0:
         raise HTTPException(status_code=400, detail="At least one model must be selected.")
+    _validated_attachments(request)
 
     user_id = user.user_id
     conversation = storage.get_conversation(user_id, conversation_id)

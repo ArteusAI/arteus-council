@@ -1,4 +1,4 @@
-export const AGORA_ICON_URL = 'https://arteus.tech/agora_logo.ico';
+export const AGORA_ICON_URL = 'https://arteus-adm.ru/agora_logo.ico';
 
 export function isAgoraModel(model) {
   return typeof model === 'string' && model.startsWith('agora/');

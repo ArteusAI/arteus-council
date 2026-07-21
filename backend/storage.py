@@ -125,7 +125,12 @@ def list_conversations(session_id: str) -> List[Dict[str, Any]]:
     return conversations
 
 
-def add_user_message(session_id: str, conversation_id: str, content: str):
+def add_user_message(
+    session_id: str,
+    conversation_id: str,
+    content: str,
+    attachments: List[Dict[str, str]] | None = None,
+):
     """
     Add a user message to a conversation.
 
@@ -133,15 +138,22 @@ def add_user_message(session_id: str, conversation_id: str, content: str):
         session_id: Browser session identifier
         conversation_id: Conversation identifier
         content: User message content
+        attachments: Optional list of {name, content} file attachments
     """
     conversation = get_conversation(session_id, conversation_id)
     if conversation is None:
         raise ValueError(f"Conversation {conversation_id} not found")
 
-    conversation["messages"].append({
+    message = {
         "role": "user",
         "content": content
-    })
+    }
+    if attachments:
+        message["attachments"] = [
+            {"name": str(item.get("name") or ""), "content": str(item.get("content") or "")}
+            for item in attachments
+        ]
+    conversation["messages"].append(message)
 
     save_conversation(session_id, conversation)
 

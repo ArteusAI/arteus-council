@@ -11,6 +11,75 @@ import './ChatInterface.css';
 
 const BOTTOM_SCROLL_THRESHOLD = 80;
 
+// Attachment limits (must stay in sync with backend/attachments.py)
+const MAX_ATTACHMENT_TOKENS = 200000;
+
+/**
+ * Fast token estimate based on character classes.
+ * Mirrors estimate_tokens() in backend/attachments.py:
+ * ASCII ~0.25 tokens/char, non-ASCII ~0.45 tokens/char.
+ */
+function estimateTokens(text) {
+  if (!text) return 0;
+  let asciiCount = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) < 128) asciiCount++;
+  }
+  const nonAsciiCount = text.length - asciiCount;
+  return Math.max(1, Math.floor(asciiCount * 0.25 + nonAsciiCount * 0.45));
+}
+
+function formatThousands(value) {
+  return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+}
+
+function PaperclipGlyph() {
+  return (
+    <svg
+      className="paperclip-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+    </svg>
+  );
+}
+
+function AttachmentChip({ attachment, onRemove, t }) {
+  return (
+    <span className="attachment-chip" title={attachment.name}>
+      <span className="attachment-chip-name">{attachment.name}</span>
+      <span className="attachment-chip-tokens">
+        {t('attachmentTokens').replace('{tokens}', formatThousands(attachment.tokens))}
+      </span>
+      {onRemove && (
+        <button
+          type="button"
+          className="attachment-chip-remove"
+          onClick={() => onRemove(attachment.name)}
+          aria-label={`Remove ${attachment.name}`}
+        >
+          ×
+        </button>
+      )}
+    </span>
+  );
+}
+
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(file);
+  });
+}
+
 function ScrapedLinkCard({ link, t }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const hasMarkdown = link.markdown && link.markdown.length > 0;
@@ -104,6 +173,7 @@ export default function ChatInterface({
   conversation,
   onSendMessage,
   onRunNextRound,
+  onRetryStage3,
   isLoading,
   availableModels,
   selectedModels,
@@ -123,12 +193,16 @@ export default function ChatInterface({
   t,
 }) {
   const [input, setInput] = useState('');
+  const [attachments, setAttachments] = useState([]);
+  const [attachmentError, setAttachmentError] = useState('');
+  const [isDragOver, setIsDragOver] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showBasePromptSettings, setShowBasePromptSettings] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState(null);
   const messagesContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
   const wasAtBottomRef = useRef(true);
   const lastConversationIdRef = useRef(undefined);
   const latestQuestionRef = useRef(null);
@@ -155,6 +229,8 @@ export default function ChatInterface({
         queueMicrotask(() => {
           if (!cancelled) {
             setInput(savedDraft || '');
+            setAttachments([]);
+            setAttachmentError('');
           }
         });
       } catch (e) {
@@ -228,12 +304,112 @@ export default function ChatInterface({
     }
   }, [conversation, scrollToBottom]);
 
+  const dragCounterRef = useRef(0);
+
+  const processFiles = async (files) => {
+    if (files.length === 0) return;
+
+    setAttachmentError('');
+    const newAttachments = [...attachments];
+
+    for (const file of files) {
+      if (!file.name.toLowerCase().endsWith('.md')) {
+        setAttachmentError(t('attachmentOnlyMd').replace('{name}', file.name));
+        continue;
+      }
+      if (newAttachments.some((item) => item.name === file.name)) {
+        setAttachmentError(
+          t('attachmentDuplicate').replace('{name}', file.name)
+        );
+        continue;
+      }
+      let content = '';
+      try {
+        content = await readFileAsText(file);
+      } catch (err) {
+        console.warn('Failed to read attachment', err);
+        setAttachmentError(
+          t('attachmentReadError').replace('{name}', file.name)
+        );
+        continue;
+      }
+      newAttachments.push({
+        name: file.name,
+        content,
+        tokens: estimateTokens(content),
+      });
+    }
+
+    const totalTokens = newAttachments.reduce((sum, item) => sum + item.tokens, 0);
+    if (totalTokens > MAX_ATTACHMENT_TOKENS) {
+      setAttachmentError(
+        t('attachmentTooLarge').replace('{tokens}', formatThousands(totalTokens))
+      );
+      return;
+    }
+
+    setAttachments(newAttachments);
+  };
+
+  const handleAttachmentSelect = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    await processFiles(files);
+  };
+
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer?.types?.includes('Files')) {
+      dragCounterRef.current++;
+      setIsDragOver(true);
+    }
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragOver(false);
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDragOver(false);
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length > 0) {
+      await processFiles(files);
+    }
+  };
+
+  const handleRemoveAttachment = (name) => {
+    setAttachmentError('');
+    setAttachments((prev) => prev.filter((item) => item.name !== name));
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (input.trim() && !isLoading && selectedModels.length > 0 && modelsLoaded) {
-      onSendMessage(input);
+    if (
+      (input.trim() || attachments.length > 0) &&
+      !isLoading &&
+      selectedModels.length > 0 &&
+      modelsLoaded
+    ) {
+      onSendMessage(input, attachments);
       // Draft is removed by the useEffect that watches input when it's set to empty
       setInput('');
+      setAttachments([]);
+      setAttachmentError('');
     }
   };
 
@@ -531,9 +707,26 @@ export default function ChatInterface({
                 >
                   <div className="message-label">{t('youLabel')}</div>
                   <div className="message-content">
-                    <div className="markdown-content">
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
-                    </div>
+                    {Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
+                      <div className="user-message-attachments">
+                        {msg.attachments.map((item) => (
+                          <AttachmentChip
+                            key={item.name}
+                            attachment={{
+                              name: item.name,
+                              tokens: estimateTokens(item.content || ''),
+                            }}
+                            onRemove={null}
+                            t={t}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    {msg.content && (
+                      <div className="markdown-content">
+                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -750,7 +943,17 @@ export default function ChatInterface({
                       ref={index === latestCompletedAssistantIndex ? latestStage3Ref : null}
                       className="chat-section-anchor"
                     >
-                      <Stage3 finalResponse={msg.stage3} t={t} />
+                      <Stage3
+                        finalResponse={msg.stage3}
+                        t={t}
+                        onRetry={
+                          onRetryStage3 &&
+                          index === conversation.messages.length - 1
+                            ? () => onRetryStage3(index)
+                            : null
+                        }
+                        isRetrying={msg.loading?.stage3}
+                      />
                     </div>
                   )}
 
@@ -874,7 +1077,36 @@ export default function ChatInterface({
       )}
 
       {conversation.messages.length === 0 && (
-        <form className="input-form" onSubmit={handleSubmit}>
+        <form
+          className={`input-form ${isDragOver ? 'drag-over' : ''}`}
+          onSubmit={handleSubmit}
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+        >
+          {isDragOver && (
+            <div className="drop-zone-overlay">
+              <span className="drop-zone-text">
+                {t('dropHere') || 'Drop .md files here'}
+              </span>
+            </div>
+          )}
+          {attachments.length > 0 && (
+            <div className="attachment-chips">
+              {attachments.map((item) => (
+                <AttachmentChip
+                  key={item.name}
+                  attachment={item}
+                  onRemove={isLoading ? null : handleRemoveAttachment}
+                  t={t}
+                />
+              ))}
+            </div>
+          )}
+          {attachmentError && (
+            <div className="attachment-error">{attachmentError}</div>
+          )}
           <textarea
             ref={textareaRef}
             className="message-input"
@@ -885,7 +1117,25 @@ export default function ChatInterface({
             disabled={isLoading || selectedModels.length === 0 || !modelsLoaded}
             rows={1}
           />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".md,.markdown,text/markdown,text/plain"
+            multiple
+            style={{ display: 'none' }}
+            onChange={handleAttachmentSelect}
+          />
           <div className="input-actions">
+            <button
+              type="button"
+              className="attach-button"
+              onClick={() => fileInputRef.current?.click()}
+              aria-label={t('attachFiles')}
+              data-tooltip={t('attachFiles')}
+              disabled={isLoading || selectedModels.length === 0 || !modelsLoaded}
+            >
+              <PaperclipGlyph />
+            </button>
             <button
               type="button"
               className={`brain-mode-button ${enableSecondRound ? 'active' : ''}`}
@@ -901,7 +1151,7 @@ export default function ChatInterface({
               type="submit"
               className="send-button"
               disabled={
-                !input.trim() ||
+                (!input.trim() && attachments.length === 0) ||
                 isLoading ||
                 selectedModels.length === 0 ||
                 !modelsLoaded

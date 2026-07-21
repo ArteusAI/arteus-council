@@ -63,6 +63,18 @@ function withAuth(headers = {}) {
   return headers;
 }
 
+async function extractErrorDetail(response, fallback) {
+  try {
+    const data = await response.json();
+    if (data && typeof data.detail === 'string' && data.detail.trim()) {
+      return data.detail;
+    }
+  } catch {
+    // non-JSON error body
+  }
+  return fallback;
+}
+
 export const api = {
   /**
    * Login with email and password.
@@ -268,8 +280,11 @@ export const api = {
   /**
    * Send a message in a conversation.
    */
-  async sendMessage(conversationId, content, models, chairmanModel, language, baseSystemPrompt, enableSecondRound = false) {
+  async sendMessage(conversationId, content, models, chairmanModel, language, baseSystemPrompt, enableSecondRound = false, attachments = []) {
     const payload = { content, language };
+    if (attachments && attachments.length > 0) {
+      payload.attachments = attachments.map(({ name, content }) => ({ name, content }));
+    }
     if (models && models.length > 0) {
       payload.models = models;
     }
@@ -295,7 +310,7 @@ export const api = {
       }
     );
     if (!response.ok) {
-      throw new Error('Failed to send message');
+      throw new Error(await extractErrorDetail(response, 'Failed to send message'));
     }
     return response.json();
   },
@@ -312,8 +327,11 @@ export const api = {
    * @param {AbortSignal} signal - Optional AbortSignal to cancel the request
    * @returns {Promise<void>}
    */
-  async sendMessageStream(conversationId, content, models, chairmanModel, language, baseSystemPrompt, enableSecondRound = false, continueLastAssistantRound = false, onEvent, signal, attachOnly = false) {
+  async sendMessageStream(conversationId, content, models, chairmanModel, language, baseSystemPrompt, enableSecondRound = false, continueLastAssistantRound = false, onEvent, signal, attachOnly = false, attachments = []) {
     const payload = { content, language };
+    if (attachments && attachments.length > 0) {
+      payload.attachments = attachments.map(({ name, content }) => ({ name, content }));
+    }
     if (models && models.length > 0) {
       payload.models = models;
     }
@@ -347,7 +365,7 @@ export const api = {
     );
 
     if (!response.ok) {
-      throw new Error('Failed to send message');
+      throw new Error(await extractErrorDetail(response, 'Failed to send message'));
     }
 
     const reader = response.body.getReader();
@@ -430,5 +448,69 @@ export const api = {
       signal,
       true
     );
+  },
+
+  /**
+   * Retry only the stage 3 (chairman synthesis) for the latest assistant
+   * message in a conversation, reusing saved stage1/stage2 results.
+   */
+  async retryStage3Stream(conversationId, onEvent, signal) {
+    const payload = { retry_stage3: true };
+    const response = await fetch(
+      `${API_BASE}/api/conversations/${conversationId}/message/stream`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...withAuth(),
+        },
+        body: JSON.stringify(payload),
+        signal,
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(await extractErrorDetail(response, 'Failed to retry stage 3'));
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (!data) continue;
+            try {
+              const event = JSON.parse(data);
+              onEvent(event.type, event);
+            } catch {
+              // skip malformed
+            }
+          }
+        }
+      }
+    } catch (streamError) {
+      onEvent('error', {
+        type: 'error',
+        message: `Connection interrupted: ${streamError.message || 'network error'}`,
+      });
+      throw streamError;
+    } finally {
+      try {
+        reader.releaseLock();
+      } catch {
+        // Reader already released
+      }
+    }
   },
 };

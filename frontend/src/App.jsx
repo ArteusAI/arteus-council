@@ -174,6 +174,111 @@ function App() {
     setUser(data.user);
   };
 
+  const handleRetryStage3 = async (messageIndex) => {
+    if (!currentConversationId) return;
+    abortCurrentRequest();
+
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    const streamConversationId = currentConversationId;
+    activeStreamConversationRef.current = streamConversationId;
+    setConversationJobStatus(streamConversationId, 'running');
+    setIsLoading(true);
+
+    const updateConversationState = (updater) => {
+      if (inProgressConversationRef.current?.id === streamConversationId) {
+        inProgressConversationRef.current = updater(inProgressConversationRef.current);
+      }
+      setCurrentConversation((prev) => {
+        if (prev?.id !== streamConversationId) return prev;
+        const updated = updater(prev);
+        inProgressConversationRef.current = updated;
+        return updated;
+      });
+    };
+
+    // Optimistically set loading state on stage3
+    updateConversationState((prev) => {
+      const messages = [...prev.messages];
+      const msg = messages[messageIndex];
+      if (msg && msg.loading) {
+        msg.loading = { ...msg.loading, stage3: true };
+      }
+      return { ...prev, messages };
+    });
+
+    try {
+      await api.retryStage3Stream(
+        streamConversationId,
+        (eventType, event) => {
+          switch (eventType) {
+            case 'stage3_start':
+              updateConversationState((prev) => {
+                const messages = [...prev.messages];
+                const msg = messages[messageIndex];
+                if (msg && msg.loading) {
+                  msg.loading = { ...msg.loading, stage3: true };
+                }
+                return { ...prev, messages };
+              });
+              break;
+            case 'stage3_complete':
+              updateConversationState((prev) => {
+                const messages = [...prev.messages];
+                const msg = messages[messageIndex];
+                if (msg) {
+                  msg.stage3 = event.data;
+                  if (event.metadata) msg.metadata = event.metadata;
+                  if (event.rounds) msg.rounds = event.rounds;
+                  msg.loading = { ...(msg.loading || {}), stage3: false };
+                }
+                return { ...prev, messages };
+              });
+              break;
+            case 'error':
+              updateConversationState((prev) => {
+                const messages = [...prev.messages];
+                const msg = messages[messageIndex];
+                if (msg && msg.loading) {
+                  msg.loading = { ...msg.loading, stage3: false };
+                }
+                return { ...prev, messages };
+              });
+              console.error('Stage 3 retry error:', event.message);
+              break;
+            case 'complete':
+              break;
+            default:
+              break;
+          }
+        },
+        abortController.signal
+      );
+    } catch (error) {
+      if (error.name === 'AbortError') return;
+      console.error('Failed to retry stage 3:', error);
+      if (error.message) {
+        window.alert(error.message);
+      }
+      updateConversationState((prev) => {
+        const messages = [...prev.messages];
+        const msg = messages[messageIndex];
+        if (msg && msg.loading) {
+          msg.loading = { ...msg.loading, stage3: false };
+        }
+        return { ...prev, messages };
+      });
+    } finally {
+      setConversationJobStatus(streamConversationId, null);
+      activeStreamConversationRef.current = null;
+      inProgressConversationRef.current = null;
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+      }
+      setIsLoading(false);
+    }
+  };
+
   const handleLogout = useCallback(() => {
     api.logout();
     setUser(null);
@@ -709,11 +814,14 @@ function App() {
     refreshConversationJob(currentConversationId);
   }, [currentConversation?.id, currentConversationId, refreshConversationJob]);
 
-  const handleSendMessage = async (content, options = {}) => {
+  const handleSendMessage = async (content, attachmentsOrOptions = [], maybeOptions = {}) => {
+    // Support both (content, options) and (content, attachments, options) call shapes
+    const attachments = Array.isArray(attachmentsOrOptions) ? attachmentsOrOptions : [];
+    const options = Array.isArray(attachmentsOrOptions) ? maybeOptions : attachmentsOrOptions;
     const { continueLastAssistantRound = false } = options;
     if (!currentConversationId) return;
     if (!selectedModels || selectedModels.length === 0) return;
-    if (!content?.trim()) return;
+    if (!content?.trim() && attachments.length === 0) return;
 
     if (continueLastAssistantRound) {
       const currentMessages = currentConversation?.messages || [];
@@ -762,6 +870,12 @@ function App() {
       } else {
         // Optimistically add user message to UI
         const userMessage = { role: 'user', content };
+        if (attachments.length > 0) {
+          userMessage.attachments = attachments.map(({ name, content: fileContent }) => ({
+            name,
+            content: fileContent,
+          }));
+        }
 
         // Create a partial assistant message that will be updated progressively
         const assistantMessage = {
@@ -1124,7 +1238,9 @@ function App() {
             console.log('Unknown event type:', eventType);
         }
         },
-        abortController.signal
+        abortController.signal,
+        false,
+        attachments
       );
     } catch (error) {
       // Don't handle abort errors - they're intentional
@@ -1132,6 +1248,9 @@ function App() {
         return;
       }
       console.error('Failed to send message:', error);
+      if (error.message) {
+        window.alert(error.message);
+      }
       setConversationJobStatus(streamConversationId, null);
       activeStreamConversationRef.current = null;
       inProgressConversationRef.current = null;
@@ -1228,6 +1347,7 @@ function App() {
         conversation={currentConversation}
         onSendMessage={handleSendMessage}
         onRunNextRound={(content) => handleSendMessage(content, { continueLastAssistantRound: true })}
+        onRetryStage3={handleRetryStage3}
         isLoading={isLoading}
         availableModels={availableModels}
         selectedModels={selectedModels}

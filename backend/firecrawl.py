@@ -157,6 +157,8 @@ async def process_message_links(text: str) -> tuple[str, list[dict], dict[str, b
     """
     Process a message to extract and scrape URLs.
 
+    Link scraping is disabled when FIRECRAWL_API_KEY is empty or missing.
+
     Args:
         text: User message text
 
@@ -165,6 +167,10 @@ async def process_message_links(text: str) -> tuple[str, list[dict], dict[str, b
         where link_metadata_list contains dicts with title, description, etc.
         and scrape_status maps URL to success boolean
     """
+    if not FIRECRAWL_API_KEY:
+        # Link reading disabled: no Firecrawl API key configured
+        return text, [], {}
+
     urls = extract_urls(text)
     if not urls:
         return text, [], {}

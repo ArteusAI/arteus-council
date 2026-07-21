@@ -57,6 +57,53 @@
   font-weight: 600;
 }
 
+.retry-stage3-btn {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--accent-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  font-weight: 600;
+}
+
+.retry-stage3-btn:hover:not(:disabled) {
+  background: var(--accent-primary);
+  color: #fff;
+  border-color: var(--accent-primary);
+}
+
+.retry-stage3-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.retry-stage3-btn span {
+  font-weight: 500;
+}
+
+.retry-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: retry-spin 0.7s linear infinite;
+}
+
+@keyframes retry-spin {
+  to { transform: rotate(360deg); }
+}
+
 .final-text {
   color: var(--text-primary);
   line-height: 1.7;

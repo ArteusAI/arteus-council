@@ -7,6 +7,7 @@ from . import openrouter
 from . import gigachat_adapter
 from . import yandex_adapter
 from . import agora_adapter
+from .config import MODEL_QUERY_TIMEOUT_SECONDS
 
 logger = logging.getLogger("llm-council.llm")
 
@@ -14,7 +15,8 @@ logger = logging.getLogger("llm-council.llm")
 async def query_model(
     model: str,
     messages: List[Dict[str, str]],
-    timeout: float = 300.0
+    timeout: float = MODEL_QUERY_TIMEOUT_SECONDS,
+    reasoning_effort: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:
     """
     Query a model using the appropriate provider based on the model identifier.
@@ -23,6 +25,8 @@ async def query_model(
         model: Model identifier (e.g., "openai/gpt-4o" or "gigachat/GigaChat-2-Max")
         messages: List of message dicts with 'role' and 'content'
         timeout: Request timeout in seconds
+        reasoning_effort: Optional OpenRouter reasoning effort override
+            (ignored by non-OpenRouter providers)
 
     Returns:
         Response dict with 'content' and optional 'reasoning_details', or None if failed
@@ -35,7 +39,7 @@ async def query_model(
         return await agora_adapter.query_model(model, messages, timeout)
     else:
         # Default to OpenRouter for everything else
-        return await openrouter.query_model(model, messages, timeout)
+        return await openrouter.query_model(model, messages, timeout, reasoning_effort)
 
 
 async def query_models_parallel(

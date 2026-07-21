@@ -1,17 +1,70 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { takePrimedDemosceneAudio } from '../utils/demosceneAudio';
+import BackroomsDemo from './BackroomsDemo';
 import './DemosceneEasterEgg.css';
 
 const TAU = Math.PI * 2;
+const BACKROOMS_FLASH_MS = 11500;
+const BACKROOMS_PHASE_MS = 12300;
 
 export default function DemosceneEasterEgg({ onClose }) {
   const canvasRef = useRef(null);
   const [showText, setShowText] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
+  const [phase, setPhase] = useState('warp');
+  const [backroomsFlash, setBackroomsFlash] = useState(false);
   const animationRef = useRef(null);
   const audioRef = useRef(null);
+  const sharedAudioContextRef = useRef(null);
+
+  const handleClose = useCallback(() => {
+    audioRef.current?.stop();
+    audioRef.current = null;
+    onClose();
+  }, [onClose]);
+
+  // ESC works in every phase; the warp intro noclips into the backrooms.
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    const flashTimer = window.setTimeout(
+      () => setBackroomsFlash(true),
+      BACKROOMS_FLASH_MS
+    );
+    const phaseTimer = window.setTimeout(
+      () => setPhase('backrooms'),
+      BACKROOMS_PHASE_MS
+    );
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.clearTimeout(flashTimer);
+      window.clearTimeout(phaseTimer);
+    };
+  }, [handleClose]);
+
+  // The shared AudioContext is owned here and closed on unmount.
+  useEffect(() => {
+    return () => {
+      try {
+        sharedAudioContextRef.current?.close?.();
+      } catch {
+        // already closed
+      }
+      sharedAudioContextRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
+    if (phase !== 'warp') {
+      return undefined;
+    }
+
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
     const backgroundCanvas = document.createElement('canvas');
@@ -136,6 +189,40 @@ export default function DemosceneEasterEgg({ onClose }) {
     resize();
     window.addEventListener('resize', resize);
 
+    // Shared black-hole geometry, used by the hole, star lensing and the
+    // space-time ripple effect.
+    const getHoleState = (elapsed) => {
+      const reveal = Math.min(1, Math.max(0, (elapsed - 6.2) / 3.2));
+      const base = Math.min(width, height) * (isMobile() ? 0.18 : 0.22);
+      return {
+        reveal,
+        cx: centerX() + Math.sin(elapsed * 0.22) * width * 0.025,
+        cy: centerY() - height * 0.04 + Math.cos(elapsed * 0.17) * height * 0.018,
+        radius: base * (0.45 + reveal * 0.9 + Math.sin(elapsed * 0.8) * 0.025),
+      };
+    };
+
+    // Sun-like color gradient for the accretion disks:
+    // white-hot inner edge -> yellow -> orange -> deep red rim.
+    const SUN_STOPS = [
+      [255, 250, 230],
+      [255, 215, 106],
+      [255, 154, 60],
+      [255, 79, 36],
+    ];
+    const sunColor = (t, alpha) => {
+      const clamped = Math.min(1, Math.max(0, t));
+      const scaled = clamped * (SUN_STOPS.length - 1);
+      const idx = Math.min(SUN_STOPS.length - 2, Math.floor(scaled));
+      const frac = scaled - idx;
+      const a = SUN_STOPS[idx];
+      const b = SUN_STOPS[idx + 1];
+      const r = Math.round(a[0] + (b[0] - a[0]) * frac);
+      const g = Math.round(a[1] + (b[1] - a[1]) * frac);
+      const bl = Math.round(a[2] + (b[2] - a[2]) * frac);
+      return `rgba(${r}, ${g}, ${bl}, ${alpha})`;
+    };
+
     const drawBackground = (elapsed) => {
       const pulse = Math.sin(elapsed * 0.18) * 0.5 + 0.5;
       ctx.drawImage(backgroundCanvas, 0, 0, width, height);
@@ -150,6 +237,7 @@ export default function DemosceneEasterEgg({ onClose }) {
       const blackHolePull = Math.min(1, Math.max(0, (elapsed - 6.5) / 4));
       const speed = 38 + warp * 520 + blackHolePull * 160;
       const focal = Math.min(width, height) * (isMobile() ? 0.72 : 0.88);
+      const hole = blackHolePull > 0.3 ? getHoleState(elapsed) : null;
 
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
@@ -204,61 +292,105 @@ export default function DemosceneEasterEgg({ onClose }) {
 
         star.prevX = projectedX;
         star.prevY = projectedY;
+
+        // Gravitational lensing: a faint mirrored image of the star near the
+        // photon ring on the opposite side of the hole.
+        if (hole && hole.reveal > 0) {
+          const dxs = projectedX - hole.cx;
+          const dys = projectedY - hole.cy;
+          const d = Math.hypot(dxs, dys);
+          if (d > hole.radius * 1.05 && d < hole.radius * 3.4) {
+            const mirrorR = (hole.radius * 1.32 * hole.radius * 1.32) / d;
+            const inv = mirrorR / d;
+            const mx = hole.cx - dxs * inv;
+            const my = hole.cy - dys * inv;
+            const mirrorAlpha = alpha * 0.34 * blackHolePull * hole.reveal;
+            ctx.fillStyle = `rgba(255, 226, 150, ${mirrorAlpha})`;
+            ctx.beginPath();
+            ctx.arc(mx, my, Math.max(0.7, size * 0.75), 0, TAU);
+            ctx.fill();
+          }
+        }
       }
       ctx.restore();
     };
 
     const drawBlackHole = (elapsed) => {
-      const reveal = Math.min(1, Math.max(0, (elapsed - 6.2) / 3.2));
+      const { reveal, cx, cy, radius } = getHoleState(elapsed);
       if (reveal <= 0) return;
 
-      const cx = centerX() + Math.sin(elapsed * 0.22) * width * 0.025;
-      const cy = centerY() - height * 0.04 + Math.cos(elapsed * 0.17) * height * 0.018;
-      const base = Math.min(width, height) * (isMobile() ? 0.18 : 0.22);
-      const radius = base * (0.45 + reveal * 0.9 + Math.sin(elapsed * 0.8) * 0.025);
       const diskWidth = radius * (3.15 + reveal * 0.35);
       const diskHeight = radius * 0.62;
       const horizonGlow = ctx.createRadialGradient(cx, cy, radius * 0.2, cx, cy, radius * 3.2);
 
       horizonGlow.addColorStop(0, 'rgba(0, 0, 0, 1)');
       horizonGlow.addColorStop(0.32, 'rgba(0, 0, 0, 0.98)');
-      horizonGlow.addColorStop(0.43, `rgba(104, 224, 255, ${0.18 * reveal})`);
-      horizonGlow.addColorStop(0.55, `rgba(255, 143, 57, ${0.2 * reveal})`);
+      horizonGlow.addColorStop(0.43, `rgba(255, 244, 214, ${0.16 * reveal})`);
+      horizonGlow.addColorStop(0.55, `rgba(255, 143, 57, ${0.22 * reveal})`);
       horizonGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
       ctx.fillStyle = horizonGlow;
       ctx.beginPath();
       ctx.arc(cx, cy, radius * 3.2, 0, TAU);
       ctx.fill();
 
+      // --- Polar (gravitationally lensed) disk -----------------------------
+      // A vertical glowing ellipse whose middle will be occluded by the
+      // black sphere, leaving bright arcs above and below the hole.
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(-0.05 + Math.sin(elapsed * 0.1) * 0.03);
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 3; i++) {
+        const scale = 1 + i * 0.16;
+        ctx.strokeStyle = sunColor(0.12 + i * 0.1, (0.26 - i * 0.06) * reveal);
+        ctx.lineWidth = Math.max(1, radius * (0.09 - i * 0.018));
+        ctx.beginPath();
+        ctx.ellipse(
+          0,
+          0,
+          radius * 0.92 * scale,
+          radius * 1.95 * scale,
+          0,
+          0,
+          TAU
+        );
+        ctx.stroke();
+      }
+      ctx.restore();
+
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(Math.sin(elapsed * 0.08) * 0.08);
       ctx.globalCompositeOperation = 'lighter';
 
-      for (let i = 0; i < 3; i++) {
-        const scale = 1 + i * 0.14;
-        ctx.strokeStyle = `hsla(${28 + i * 10}, 100%, ${58 + i * 5}%, ${0.2 * reveal})`;
-        ctx.lineWidth = Math.max(1, radius * (0.07 - i * 0.007));
+      // --- Equatorial disk: sun-gradient rings ------------------------------
+      for (let i = 0; i < 6; i++) {
+        const t = i / 5;
+        const scale = 1 + t * 0.85;
+        ctx.strokeStyle = sunColor(t * 0.9, (0.34 - t * 0.2) * reveal);
+        ctx.lineWidth = Math.max(1, radius * (0.1 - t * 0.075));
         ctx.beginPath();
         ctx.ellipse(0, 0, diskWidth * scale, diskHeight * scale, 0, 0, TAU);
         ctx.stroke();
       }
 
+      // --- Accretion particles, tinted by orbital radius --------------------
       for (const particle of accretion) {
         const orbit = particle.angle + elapsed * particle.speed * particle.lane;
         const r = radius * (1.15 + particle.radius * 1.2);
         const x = Math.cos(orbit) * r * 1.72;
         const y = Math.sin(orbit) * r * 0.34;
         const front = Math.sin(orbit) > 0 ? 1 : 0.46;
-        const hue = 35 + particle.hueShift + front * 170;
+        const t = Math.min(1, Math.max(0, (particle.radius - 0.35) / 0.8));
 
-        ctx.fillStyle = `hsla(${hue}, 100%, ${58 + front * 22}%, ${reveal * front})`;
+        ctx.fillStyle = sunColor(t * 0.85, reveal * front);
         ctx.beginPath();
         ctx.ellipse(x, y, particle.size * (1.4 + front), particle.size, 0, 0, TAU);
         ctx.fill();
       }
 
-      ctx.strokeStyle = `rgba(151, 232, 255, ${0.58 * reveal})`;
+      // --- Photon ring -------------------------------------------------------
+      ctx.strokeStyle = `rgba(255, 244, 214, ${0.62 * reveal})`;
       ctx.lineWidth = Math.max(1, radius * 0.025);
       ctx.beginPath();
       ctx.arc(0, 0, radius * 1.28, -0.25, TAU - 0.25);
@@ -272,12 +404,77 @@ export default function DemosceneEasterEgg({ onClose }) {
 
       const rim = ctx.createRadialGradient(cx, cy, radius * 0.8, cx, cy, radius * 1.45);
       rim.addColorStop(0, 'rgba(0, 0, 0, 0)');
-      rim.addColorStop(0.68, `rgba(132, 229, 255, ${0.42 * reveal})`);
+      rim.addColorStop(0.68, `rgba(255, 228, 158, ${0.45 * reveal})`);
       rim.addColorStop(1, 'rgba(0, 0, 0, 0)');
       ctx.fillStyle = rim;
       ctx.beginPath();
       ctx.arc(cx, cy, radius * 1.55, 0, TAU);
       ctx.fill();
+    };
+
+    // --- Space-time distortion while diving into the hole -------------------
+    const ripples = [];
+    let lastRippleAt = -10;
+
+    const drawWarpDistortion = (elapsed) => {
+      const start = 2.5;
+      if (elapsed < start) return;
+
+      const { reveal, cx: hcx, cy: hcy, radius } = getHoleState(elapsed);
+      const blackHolePull = Math.min(1, Math.max(0, (elapsed - 6.5) / 4));
+      const fade = Math.min(1, Math.max(0, (11.3 - elapsed) / 1.5));
+      if (fade <= 0) return;
+
+      // Expanding space ripples; their centers drift toward the hole as it
+      // takes over the field.
+      if (elapsed - lastRippleAt > 0.85) {
+        lastRippleAt = elapsed;
+        ripples.push({ t0: elapsed });
+        if (ripples.length > 8) ripples.shift();
+      }
+
+      const cx = centerX();
+      const cy = centerY();
+      const maxRadius = Math.max(width, height);
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (const ripple of ripples) {
+        const age = elapsed - ripple.t0;
+        if (age <= 0) continue;
+        const life = 2.4;
+        if (age > life) continue;
+        const progress = age / life;
+        const r = 40 + progress * maxRadius * 0.75;
+        const alpha = 0.16 * (1 - progress) * fade;
+        const pullX = cx + (hcx - cx) * blackHolePull * 0.6;
+        const pullY = cy + (hcy - cy) * blackHolePull * 0.6;
+
+        ctx.strokeStyle = `rgba(145, 232, 255, ${alpha})`;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(pullX, pullY, r * 1.012, 0, TAU);
+        ctx.stroke();
+
+        ctx.strokeStyle = `rgba(255, 168, 76, ${alpha * 0.9})`;
+        ctx.beginPath();
+        ctx.arc(pullX, pullY, r * 0.988, 0, TAU);
+        ctx.stroke();
+      }
+
+      // Lensing shimmer: thin rotating arcs hugging the hole.
+      if (reveal > 0.15) {
+        for (let i = 0; i < 3; i++) {
+          const ringR = radius * (1.6 + i * 0.42);
+          const spin = elapsed * (0.35 + i * 0.12);
+          ctx.strokeStyle = sunColor(0.2 + i * 0.25, (0.14 - i * 0.03) * reveal * fade);
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.arc(hcx, hcy, ringR, spin, spin + Math.PI * 1.35);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
     };
 
     const drawHudText = (elapsed) => {
@@ -331,6 +528,7 @@ export default function DemosceneEasterEgg({ onClose }) {
 
       drawBackground(elapsed);
       drawStars(elapsed, delta);
+      drawWarpDistortion(elapsed);
       drawBlackHole(elapsed);
       drawHudText(elapsed);
       drawPostEffects(elapsed);
@@ -340,26 +538,22 @@ export default function DemosceneEasterEgg({ onClose }) {
 
     const textTimer = window.setTimeout(() => setShowText(true), 900);
 
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
     animationRef.current = requestAnimationFrame(render);
 
     return () => {
       window.clearTimeout(textTimer);
       window.removeEventListener('resize', resize);
-      window.removeEventListener('keydown', handleKeyDown);
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [onClose]);
+  }, [phase, handleClose]);
 
   useEffect(() => {
+    if (phase !== 'warp') {
+      return undefined;
+    }
+
     let stopped = false;
     let stepTimer = null;
     let sweepTimer = null;
@@ -431,6 +625,7 @@ export default function DemosceneEasterEgg({ onClose }) {
         }
 
         audioContext = takePrimedDemosceneAudio() || new AudioContext();
+        sharedAudioContextRef.current = audioContext;
         await audioContext.resume();
 
         master = audioContext.createGain();
@@ -476,9 +671,8 @@ export default function DemosceneEasterEgg({ onClose }) {
               master.gain.setValueAtTime(Math.max(master.gain.value, 0.0001), now);
               master.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
             }
-            window.setTimeout(() => {
-              audioContext?.close().catch(() => {});
-            }, 220);
+            // The AudioContext is NOT closed here: it is handed off to the
+            // backrooms phase and closed when the overlay unmounts.
           },
         };
       } catch {
@@ -495,47 +689,53 @@ export default function DemosceneEasterEgg({ onClose }) {
       audioRef.current?.stop();
       audioRef.current = null;
     };
-  }, []);
-
-  const handleClose = () => {
-    audioRef.current?.stop();
-    audioRef.current = null;
-    onClose();
-  };
+  }, [phase]);
 
   return (
-    <div className="demoscene-overlay" onClick={handleClose}>
-      <canvas ref={canvasRef} className="demoscene-canvas" />
+    <div
+      className={`demoscene-overlay ${backroomsFlash && phase === 'warp' ? 'backrooms-flash' : ''}`}
+      onClick={handleClose}
+    >
+      {phase === 'backrooms' ? (
+        <BackroomsDemo
+          onClose={handleClose}
+          audioContextRef={sharedAudioContextRef}
+        />
+      ) : (
+        <>
+          <canvas ref={canvasRef} className="demoscene-canvas" />
 
-      <div className={`demoscene-content ${showText ? 'visible' : ''}`}>
-        <div className="demoscene-logo">
-          <img
-            src="https://framerusercontent.com/images/G4MFpJVGo4QKdInsGAegy907Em4.png"
-            alt="Arteus"
-            className="demoscene-logo-img"
-          />
-        </div>
-        <h1 className="demoscene-title">
-          <span className="glitch" data-text="ARTEUS">ARTEUS</span>
-        </h1>
-        <p className="demoscene-subtitle">
-          We're building AI assistants that aren't afraid to cross the event horizon
-        </p>
-        <div className="demoscene-hint">
-          <span className="blink">[</span> PRESS ESC OR CLICK TO EXIT <span className="blink">]</span>
-        </div>
-        {audioBlocked && (
-          <div className="demoscene-audio-note">
-            AUDIO SYSTEM MUTED BY BROWSER
+          <div className={`demoscene-content ${showText ? 'visible' : ''}`}>
+            <div className="demoscene-logo">
+              <img
+                src="https://framerusercontent.com/images/G4MFpJVGo4QKdInsGAegy907Em4.png"
+                alt="Arteus"
+                className="demoscene-logo-img"
+              />
+            </div>
+            <h1 className="demoscene-title">
+              <span className="glitch" data-text="ARTEUS">ARTEUS</span>
+            </h1>
+            <p className="demoscene-subtitle">
+              We're building AI assistants that aren't afraid to cross the event horizon
+            </p>
+            <div className="demoscene-hint">
+              <span className="blink">[</span> PRESS ESC OR CLICK TO EXIT <span className="blink">]</span>
+            </div>
+            {audioBlocked && (
+              <div className="demoscene-audio-note">
+                AUDIO SYSTEM MUTED BY BROWSER
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      <div className="demoscene-credits">
-        <span>WARP DRIVE</span>
-        <span className="separator">///</span>
-        <span>BLACK HOLE INTRO 2026</span>
-      </div>
+          <div className="demoscene-credits">
+            <span>WARP DRIVE</span>
+            <span className="separator">///</span>
+            <span>BLACK HOLE INTRO 2026</span>
+          </div>
+        </>
+      )}
     </div>
   );
 }
