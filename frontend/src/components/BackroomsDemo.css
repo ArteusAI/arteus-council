@@ -1,0 +1,142 @@
+.backrooms-container {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #14100a;
+  cursor: crosshair;
+}
+
+.backrooms-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.backrooms-card {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  opacity: 0;
+  transition: opacity 1.2s ease;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.backrooms-card.visible {
+  opacity: 1;
+}
+
+.backrooms-card-title {
+  font-family: 'Courier New', monospace;
+  font-size: clamp(42px, 9vw, 96px);
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: #f5e9b8;
+  text-shadow:
+    0 0 18px rgba(245, 233, 184, 0.45),
+    3px 0 0 rgba(255, 90, 60, 0.35),
+    -3px 0 0 rgba(90, 200, 255, 0.3);
+  animation: backrooms-title-flicker 3.2s infinite;
+}
+
+.backrooms-card-sub {
+  margin-top: 10px;
+  font-family: 'Courier New', monospace;
+  font-size: clamp(13px, 2vw, 18px);
+  letter-spacing: 0.5em;
+  color: rgba(245, 233, 184, 0.72);
+}
+
+.backrooms-card-flavor {
+  margin-top: 18px;
+  font-family: 'Courier New', monospace;
+  font-size: clamp(11px, 1.5vw, 13px);
+  letter-spacing: 0.18em;
+  color: rgba(245, 233, 184, 0.45);
+  font-style: italic;
+}
+
+@keyframes backrooms-title-flicker {
+  0%, 100% { opacity: 1; }
+  91% { opacity: 1; }
+  92% { opacity: 0.35; }
+  93% { opacity: 1; }
+  95% { opacity: 0.55; }
+  96% { opacity: 1; }
+}
+
+.backrooms-hud {
+  position: absolute;
+  top: 18px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: rgba(245, 233, 184, 0.85);
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
+  z-index: 5;
+  pointer-events: none;
+}
+
+.backrooms-hud-left {
+  left: 22px;
+}
+
+.backrooms-hud-right {
+  right: 22px;
+}
+
+.backrooms-hud-dim {
+  color: rgba(245, 233, 184, 0.45);
+}
+
+.backrooms-hint {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  white-space: nowrap;
+  color: rgba(245, 233, 184, 0.5);
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
+  z-index: 5;
+  pointer-events: none;
+}
+
+.backrooms-audio-note {
+  position: absolute;
+  bottom: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  color: rgba(255, 120, 90, 0.75);
+  z-index: 5;
+  pointer-events: none;
+}
+
+.blink {
+  animation: backrooms-blink 1.1s steps(2, start) infinite;
+}
+
+@keyframes backrooms-blink {
+  to { visibility: hidden; }
+}
+
+@media (max-width: 600px) {
+  .backrooms-hint {
+    font-size: 9px;
+    letter-spacing: 0.12em;
+  }
+
+  .backrooms-hud {
+    font-size: 11px;
+  }
+}
