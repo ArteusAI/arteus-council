@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import * as pdfjsLib from 'pdfjs-dist';
+import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import Stage1 from './Stage1';
 import Stage2 from './Stage2';
 import Stage3 from './Stage3';
@@ -8,6 +10,8 @@ import { exportCouncilToPdf } from '../utils/exportPdf';
 import { copyCouncilAsMarkdown } from '../utils/exportMarkdown';
 import { getModelDisplayName } from '../utils/modelDisplay';
 import './ChatInterface.css';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
 const BOTTOM_SCROLL_THRESHOLD = 80;
 
@@ -78,6 +82,39 @@ function readFileAsText(file) {
     reader.onerror = () => reject(reader.error);
     reader.readAsText(file);
   });
+}
+
+/**
+ * Extract text from a PDF file using pdfjs-dist.
+ * Returns plain text with page separators. Throws on password-protected
+ * or image-only (scanned) PDFs.
+ */
+async function extractPdfText(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+  const pdf = await loadingTask.promise;
+
+  const pages = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items
+      .map((item) => item.str)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (pageText) {
+      pages.push(`--- Page ${i} ---\n${pageText}`);
+    }
+  }
+
+  await pdf.destroy();
+
+  if (pages.length === 0) {
+    throw new Error('NO_TEXT');
+  }
+
+  return pages.join('\n\n');
 }
 
 function ScrapedLinkCard({ link, t }) {
@@ -313,7 +350,12 @@ export default function ChatInterface({
     const newAttachments = [...attachments];
 
     for (const file of files) {
-      if (!file.name.toLowerCase().endsWith('.md')) {
+      const lowerName = file.name.toLowerCase();
+      const isPdf = lowerName.endsWith('.pdf');
+      const isMd = lowerName.endsWith('.md') || lowerName.endsWith('.markdown');
+      const isTxt = lowerName.endsWith('.txt');
+
+      if (!isPdf && !isMd && !isTxt) {
         setAttachmentError(t('attachmentOnlyMd').replace('{name}', file.name));
         continue;
       }
@@ -325,12 +367,24 @@ export default function ChatInterface({
       }
       let content = '';
       try {
-        content = await readFileAsText(file);
+        content = isPdf
+          ? await extractPdfText(file)
+          : await readFileAsText(file);
       } catch (err) {
         console.warn('Failed to read attachment', err);
-        setAttachmentError(
-          t('attachmentReadError').replace('{name}', file.name)
-        );
+        if (err?.message === 'NO_TEXT') {
+          setAttachmentError(
+            t('attachmentPdfNoText').replace('{name}', file.name)
+          );
+        } else if (err?.name === 'PasswordException') {
+          setAttachmentError(
+            t('attachmentPdfPassword').replace('{name}', file.name)
+          );
+        } else {
+          setAttachmentError(
+            t('attachmentReadError').replace('{name}', file.name)
+          );
+        }
         continue;
       }
       newAttachments.push({
@@ -1089,7 +1143,7 @@ export default function ChatInterface({
           {isDragOver && (
             <div className="drop-zone-overlay">
               <span className="drop-zone-text">
-                {t('dropHere') || 'Drop .md files here'}
+                {t('dropHere') || 'Drop .md or .pdf files here'}
               </span>
             </div>
           )}
@@ -1121,7 +1175,7 @@ export default function ChatInterface({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".md,.markdown,text/markdown,text/plain"
+            accept=".md,.markdown,.txt,.pdf,text/markdown,text/plain,application/pdf"
             multiple
             style={{ display: 'none' }}
             onChange={handleAttachmentSelect}

@@ -118,13 +118,15 @@ export const translations = {
     basePromptCustom: 'Custom Identity',
     close: 'Close',
     attachFiles: 'Attach .md files',
-    attachmentOnlyMd: 'Only .md files. "{name}" is not markdown. Save it as .md and come back.',
+    attachmentOnlyMd: 'Only .md, .txt and .pdf files. "{name}" is not supported.',
     attachmentTooLarge:
       "Don't be greedy. Attachments are ~200 000 tokens max in total, you have ~{tokens}. Top models run at max thinking effort — every token is expensively deliberated. Trim the files and come back.",
     attachmentTokens: '~{tokens} tokens',
     attachmentDuplicate: '"{name}" is already attached.',
     attachmentReadError: 'Could not read "{name}". The file may be too large or inaccessible.',
-    dropHere: 'Drop .md files here',
+    attachmentPdfNoText: 'Could not extract text from PDF "{name}". It may be a scanned document.',
+    attachmentPdfPassword: 'PDF "{name}" is password-protected.',
+    dropHere: 'Drop .md, .txt or .pdf files here',
   },
   ru: {
     appName: 'Дружина Артеус',
@@ -244,13 +246,15 @@ export const translations = {
     basePromptCustom: 'Своя личность',
     close: 'Закрыть',
     attachFiles: 'Приложить .md файлы',
-    attachmentOnlyMd: 'Только .md файлы. «{name}» — не markdown. Пересохрани как .md и приходи.',
+    attachmentOnlyMd: 'Только .md, .txt и .pdf файлы. «{name}» не поддерживается.',
     attachmentTooLarge:
       'Не жируй. Вложения — максимум ~200 000 токенов суммарно, у тебя вышло ~{tokens}. Топ-модели работают на max thinking effort — каждый токен дорого обдумывается. Урежь файлы и приходи заново.',
     attachmentTokens: '~{tokens} токенов',
     attachmentDuplicate: '«{name}» уже приложен.',
     attachmentReadError: 'Не удалось прочитать «{name}». Файл слишком большой или недоступен.',
-    dropHere: 'Брось .md файлы сюда',
+    attachmentPdfNoText: 'Не удалось извлечь текст из PDF «{name}». Возможно, это скан.',
+    attachmentPdfPassword: 'PDF «{name}» запаролен.',
+    dropHere: 'Брось .md, .txt или .pdf файлы сюда',
   },
   el: {
     appName: 'Arteus Council',
@@ -370,13 +374,15 @@ export const translations = {
     basePromptCustom: 'Προσαρμοσμένη ταυτότητα',
     close: 'Κλείσιμο',
     attachFiles: 'Επισύναψη αρχείων .md',
-    attachmentOnlyMd: 'Μόνο αρχεία .md. Το "{name}" δεν είναι markdown. Αποθήκευσέ το ως .md και ξαναέλα.',
+    attachmentOnlyMd: 'Μόνο αρχεία .md, .txt και .pdf. Το "{name}" δεν υποστηρίζεται.',
     attachmentTooLarge:
       'Μην το παρακάνεις. Τα συνημμένα είναι ~200 000 tokens συνολικά, εσύ έχεις ~{tokens}. Τα κορυφαία μοντέλα δουλεύουν σε max thinking effort — κάθε token σκεπτόμαστε ακριβά. Κούρεψε τα αρχεία και ξαναέλα.',
     attachmentTokens: '~{tokens} tokens',
     attachmentDuplicate: 'Το "{name}" είναι ήδη συνημμένο.',
     attachmentReadError: 'Αδυναμία ανάγνωσης "{name}". Το αρχείο είναι πολύ μεγάλο ή μη προσβάσιμο.',
-    dropHere: 'Ρίξε αρχεία .md εδώ',
+    attachmentPdfNoText: 'Αδυναμία εξαγωγής κειμένου από το PDF "{name}". Μπορεί να είναι σκαναρισμένο.',
+    attachmentPdfPassword: 'Το PDF "{name}" προστατεύεται με κωδικό.',
+    dropHere: 'Ρίξε αρχεία .md, .txt ή .pdf εδώ',
   },
 };
 

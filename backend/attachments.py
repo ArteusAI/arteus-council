@@ -15,7 +15,7 @@ logger = logging.getLogger("llm-council.attachments")
 # Total token budget for all attachments in a single message
 MAX_ATTACHMENT_TOKENS = 100_000
 
-ALLOWED_EXTENSION = ".md"
+ALLOWED_EXTENSIONS = (".md", ".pdf", ".txt")
 
 
 def estimate_tokens(text: str) -> int:
@@ -52,10 +52,10 @@ def validate_attachments(attachments: List[Dict[str, Any]]) -> None:
     """
     for item in attachments:
         name = str(item.get("name") or "")
-        if not name.lower().endswith(ALLOWED_EXTENSION):
+        if not name.lower().endswith(ALLOWED_EXTENSIONS):
             raise ValueError(
-                f"Только .md файлы. «{name}» — не markdown. "
-                "Пересохрани как .md и приходи."
+                f"Только .md, .txt и .pdf файлы. «{name}» не поддерживается. "
+                "Пришли markdown, текст или PDF и приходи заново."
             )
 
     total_tokens = estimate_attachments_tokens(attachments)
@@ -135,10 +135,12 @@ def create_attachment_files(
     used_names = set()
     for index, item in enumerate(attachments, start=1):
         filename = Path(item["name"]).name or f"attachment_{index}.md"
-        if not filename.lower().endswith(ALLOWED_EXTENSION):
-            filename = f"{filename}{ALLOWED_EXTENSION}"
+        # Content is always extracted text — host as .md so Agora's
+        # resource_fetcher reads it as plain text.
+        if not filename.lower().endswith(".md"):
+            filename = f"{Path(filename).stem}.md"
         if filename in used_names:
-            filename = f"{Path(filename).stem}_{index}{ALLOWED_EXTENSION}"
+            filename = f"{Path(filename).stem}_{index}.md"
         used_names.add(filename)
 
         file_path = tmp_path / filename
