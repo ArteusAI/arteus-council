@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
 import ModelLabel from './ModelLabel';
+import MarkdownRenderer from './MarkdownRenderer';
 import { formatResponseMarkdown } from '../utils/responseMarkdown';
 import './Stage1.css';
 
@@ -31,8 +31,8 @@ export default function Stage1({ responses, title, t }) {
         <div className="model-name">
           <ModelLabel model={responses[activeTab].model} />
         </div>
-        <div className="response-text markdown-content">
-          <ReactMarkdown>{formatResponseMarkdown(responses[activeTab].response)}</ReactMarkdown>
+        <div className="response-text">
+          <MarkdownRenderer>{formatResponseMarkdown(responses[activeTab].response)}</MarkdownRenderer>
         </div>
       </div>
     </div>

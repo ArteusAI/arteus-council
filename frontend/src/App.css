@@ -51,6 +51,48 @@
   position: relative;
 }
 
+/* Thin orange bar shown when the SSE connection is lost */
+.connection-error-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 28px;
+  background: linear-gradient(90deg, #e85d04, #f48c06, #e85d04);
+  color: #fff;
+  font-size: 12px;
+  font-family: 'Courier New', monospace;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  animation: connection-bar-pulse 2s ease-in-out infinite;
+}
+
+@keyframes connection-bar-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.75; }
+}
+
+.connection-error-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: connection-bar-spin 0.6s linear infinite;
+}
+
+@keyframes connection-bar-spin {
+  to { transform: rotate(360deg); }
+}
+
 .app.light {
   /* Default light variables are already in :root */
 }

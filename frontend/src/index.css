@@ -202,14 +202,101 @@ body {
 .markdown-content table {
   width: 100%;
   max-width: 100%;
-  table-layout: fixed;
   border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 14px;
+  overflow-x: auto;
+  display: block;
 }
 
 .markdown-content th,
 .markdown-content td {
+  padding: 8px 12px;
+  border: 1px solid var(--border-primary);
+  text-align: left;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.markdown-content thead {
+  background: var(--bg-secondary);
+}
+
+.markdown-content thead th {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.markdown-content tbody tr:nth-child(even) {
+  background: var(--bg-secondary);
+}
+
+.table-wrapper {
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+.table-wrapper table {
+  display: table;
+  width: 100%;
+  max-width: 100%;
+  border-collapse: collapse;
+}
+
+/* Mermaid diagram containers */
+.mermaid-container {
+  display: flex;
+  justify-content: center;
+  margin: 16px 0;
+  padding: 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.mermaid-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-error {
+  margin: 12px 0;
+  padding: 8px;
+  background: #fdecea;
+  border: 1px solid #f5c6c0;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #b3261e;
+}
+
+.mermaid-error summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.mermaid-error pre {
+  margin-top: 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 12px;
+}
+
+.code-block {
+  overflow-x: auto;
+  margin: 12px 0;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.code-block code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
 }
 
 .markdown-content img {

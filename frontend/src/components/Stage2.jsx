@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
 import ModelLabel from './ModelLabel';
+import MarkdownRenderer from './MarkdownRenderer';
 import { getModelDisplayName } from '../utils/modelDisplay';
 import { formatResponseMarkdown } from '../utils/responseMarkdown';
 import './Stage2.css';
@@ -49,10 +49,10 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings, aggr
         <div className="ranking-model">
           <ModelLabel model={rankings[activeTab].model} />
         </div>
-        <div className="ranking-content markdown-content">
-          <ReactMarkdown>
+        <div className="ranking-content">
+          <MarkdownRenderer>
             {deAnonymizeText(formatResponseMarkdown(rankings[activeTab].ranking), labelToModel)}
-          </ReactMarkdown>
+          </MarkdownRenderer>
         </div>
 
             {rankings[activeTab].parsed_ranking &&

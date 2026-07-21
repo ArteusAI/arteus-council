@@ -20,6 +20,7 @@ from .attachments import (
 from .config import COUNCIL_MODELS, FIRECRAWL_API_KEY
 from .council import (
     build_label_to_model,
+    build_cost_stats,
     build_round_metadata,
     build_round_payload,
     calculate_second_round_status,
@@ -540,6 +541,13 @@ class CouncilJob:
                 "second_round_status": "completed" if round2_payload else "skipped",
                 "round2_finalists": finalists,
                 "round2": round2_metadata,
+                "cost_stats": build_cost_stats(
+                    stage1_results,
+                    stage2_results,
+                    stage3_result,
+                    round2_stage1_results,
+                    round2_stage2_results,
+                ),
             }
             self.assistant_message["stage3"] = stage3_result
             self.assistant_message["metadata"] = metadata
@@ -912,6 +920,13 @@ class CouncilJob:
             "second_round_status": second_round_status,
             "round2_finalists": finalists,
             "round2": round2_metadata,
+            "cost_stats": build_cost_stats(
+                stage1_results,
+                stage2_results,
+                stage3_result,
+                round2_stage1_results,
+                round2_stage2_results,
+            ),
         }
         self.assistant_message["stage3"] = stage3_result
         self.assistant_message["metadata"] = metadata

@@ -65,7 +65,12 @@ def build_stage1_prompt(
     """Build the prompt used for the initial response round."""
     detailed_instruction = (
         "\n\nPlease provide a comprehensive, detailed answer covering all "
-        "nuances and aspects of the question."
+        "nuances and aspects of the question. "
+        "You may use Mermaid diagrams (flowchart, sequenceDiagram, etc.) "
+        "where they add clarity — for example, to visualize architecture, "
+        "data flow, decision trees, or process steps. Wrap diagram code in "
+        "```mermaid fences. Use them judiciously, only where a visual adds "
+        "real value over prose."
     )
     if base_system_prompt:
         return (
@@ -347,6 +352,83 @@ def build_round_metadata(
     }
 
 
+def _usage_entry(stage: str, result: Dict[str, Any]) -> Dict[str, Any] | None:
+    """Build a breakdown entry from a result's usage, or None if no usage."""
+    usage = result.get("usage")
+    if not usage:
+        return None
+    return {
+        "stage": stage,
+        "model": result.get("model", ""),
+        "prompt_tokens": usage.get("prompt_tokens", 0),
+        "completion_tokens": usage.get("completion_tokens", 0),
+        "reasoning_tokens": usage.get("reasoning_tokens", 0),
+        "total_tokens": usage.get("total_tokens", 0),
+        "cost": usage.get("cost") or 0.0,
+    }
+
+
+def build_cost_stats(
+    stage1_results: List[Dict[str, Any]],
+    stage2_results: List[Dict[str, Any]],
+    stage3_result: Dict[str, Any] | None = None,
+    round2_stage1_results: List[Dict[str, Any]] | None = None,
+    round2_stage2_results: List[Dict[str, Any]] | None = None,
+) -> Dict[str, Any]:
+    """Aggregate token usage and cost across all council stages."""
+    breakdown: List[Dict[str, Any]] = []
+    total_cost = 0.0
+    total_tokens = 0
+
+    stages = [
+        ("stage1", stage1_results),
+        ("stage2", stage2_results),
+        ("round2_stage1", round2_stage1_results or []),
+        ("round2_stage2", round2_stage2_results or []),
+    ]
+    for stage_name, results in stages:
+        for result in results:
+            entry = _usage_entry(stage_name, result)
+            if entry:
+                breakdown.append(entry)
+                total_cost += entry["cost"]
+                total_tokens += entry["total_tokens"]
+            elif result.get("model"):
+                # Model without usage data (e.g. Agora)
+                breakdown.append({
+                    "stage": stage_name,
+                    "model": result["model"],
+                    "prompt_tokens": None,
+                    "completion_tokens": None,
+                    "reasoning_tokens": None,
+                    "total_tokens": None,
+                    "cost": None,
+                })
+
+    if stage3_result:
+        entry = _usage_entry("stage3", stage3_result)
+        if entry:
+            breakdown.append(entry)
+            total_cost += entry["cost"]
+            total_tokens += entry["total_tokens"]
+        elif stage3_result.get("model"):
+            breakdown.append({
+                "stage": "stage3",
+                "model": stage3_result["model"],
+                "prompt_tokens": None,
+                "completion_tokens": None,
+                "reasoning_tokens": None,
+                "total_tokens": None,
+                "cost": None,
+            })
+
+    return {
+        "total_cost": round(total_cost, 6),
+        "total_tokens": total_tokens,
+        "breakdown": breakdown,
+    }
+
+
 def build_round_payload(
     round_number: int,
     stage1_results: List[Dict[str, Any]],
@@ -603,6 +685,9 @@ async def stage1_collect_responses(
             rag_context = response.get("rag_context")
             if rag_context:
                 result["rag_context"] = rag_context
+            usage = response.get("usage")
+            if usage:
+                result["usage"] = usage
             stage1_results.append(result)
 
     return stage1_results
@@ -661,6 +746,9 @@ async def stage1_collect_revised_responses(
             rag_context = response.get("rag_context")
             if rag_context:
                 result["rag_context"] = rag_context
+            usage = response.get("usage")
+            if usage:
+                result["usage"] = usage
             revised_results.append(result)
     return revised_results
 
@@ -775,6 +863,9 @@ async def stage2_collect_rankings(
             }
             if parsed_scores:
                 result["parsed_scores"] = parsed_scores
+            usage = response.get("usage")
+            if usage:
+                result["usage"] = usage
             stage2_results.append(result)
 
     return stage2_results, label_to_model
@@ -869,7 +960,8 @@ ROUND 1 - Peer Rankings:
 - If round 2 exists, treat round-2 finalist revisions as the freshest corrected drafts
 - Preserve useful minority insights from round 1 even if those models were not finalists, when they add value
 {personalization}
-Provide a clear, well-reasoned final answer that represents the council's collective wisdom:"""
+Provide a clear, well-reasoned final answer that represents the council's collective wisdom.
+Use rich Markdown formatting to maximize clarity: headers, **bold**, bullet and numbered lists, blockquotes for important callouts, and tables for structured comparisons (e.g. pros/cons, feature matrices, pricing tiers). Where a visual adds real value over prose — such as system architecture, data flow, decision trees, or process steps — include Mermaid diagrams wrapped in ```mermaid fences (flowchart, sequenceDiagram, classDiagram, etc.). Use diagrams judiciously, only where they genuinely improve understanding."""
 
     if language_note:
         target_language = LANGUAGE_NAMES.get(language.lower(), "the user's language")
@@ -896,10 +988,13 @@ Provide a clear, well-reasoned final answer that represents the council's collec
             "response": "Error: Unable to generate final synthesis.",
         }
 
-    return {
+    result = {
         "model": chairman_to_use,
         "response": final_content,
     }
+    if response and response.get("usage"):
+        result["usage"] = response["usage"]
+    return result
 
 
 def parse_ranking_from_text(ranking_text: str) -> List[str]:
@@ -1075,7 +1170,7 @@ Title:"""
 
     messages = [{"role": "user", "content": title_prompt}]
     # Keep title generation fast and cheap: light reasoning, short timeout
-    response = await query_model("google/gemini-2.5-flash", messages, timeout=30.0, reasoning_effort="low")
+    response = await query_model("~google/gemini-flash-latest", messages, timeout=30.0, reasoning_effort="low")
 
     if response is None:
         return "New Conversation"
@@ -1231,6 +1326,13 @@ async def run_full_council(
         "second_round_status": second_round_status,
         "round2_finalists": finalists,
         "round2": round2_metadata,
+        "cost_stats": build_cost_stats(
+            stage1_results,
+            stage2_results,
+            stage3_result,
+            round2_stage1_results,
+            round2_stage2_results,
+        ),
     }
 
     return stage1_results, stage2_results, stage3_result, metadata, rounds

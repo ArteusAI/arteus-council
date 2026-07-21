@@ -65,19 +65,35 @@ async def query_model(
             if not choices:
                 logger.error(f"[{short_model}] No choices in response: {data}")
                 return None
-                
+
             message = choices[0]['message']
-            
+
             duration = time.time() - start_time
             content = message.get('content') or ''
             # Extract reasoning - OpenRouter can return it in different fields
             reasoning = message.get('reasoning') or message.get('reasoning_content') or message.get('reasoning_details') or ''
-            
-            logger.info(f"[{short_model}] OK in {duration:.1f}s, response_len={len(content)}, reasoning_len={len(reasoning)}")
+
+            # Extract token usage and cost from OpenRouter response
+            raw_usage = data.get('usage') or {}
+            completion_details = raw_usage.get('completion_tokens_details') or {}
+            usage = {
+                'prompt_tokens': raw_usage.get('prompt_tokens', 0),
+                'completion_tokens': raw_usage.get('completion_tokens', 0),
+                'total_tokens': raw_usage.get('total_tokens', 0),
+                'reasoning_tokens': completion_details.get('reasoning_tokens', 0),
+                'cost': raw_usage.get('cost') or 0.0,
+            }
+
+            logger.info(
+                f"[{short_model}] OK in {duration:.1f}s, "
+                f"response_len={len(content)}, reasoning_len={len(reasoning)}, "
+                f"tokens={usage['total_tokens']}, cost=${usage['cost']:.6f}"
+            )
 
             return {
                 'content': content,
-                'reasoning_details': reasoning
+                'reasoning_details': reasoning,
+                'usage': usage,
             }
 
     except httpx.TimeoutException:

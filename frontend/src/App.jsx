@@ -31,6 +31,7 @@ function App() {
   const [isConversationLoading, setIsConversationLoading] = useState(false);
   const [showConversationLoadingSpinner, setShowConversationLoadingSpinner] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [connectionError, setConnectionError] = useState(null);
   const [availableModels, setAvailableModels] = useState([]);
   const [identityTemplates, setIdentityTemplates] = useState([]);
   const [selectedModels, setSelectedModels] = useState([]);
@@ -258,7 +259,7 @@ function App() {
       if (error.name === 'AbortError') return;
       console.error('Failed to retry stage 3:', error);
       if (error.message) {
-        window.alert(error.message);
+        setConnectionError(t('connectionLost'));
       }
       updateConversationState((prev) => {
         const messages = [...prev.messages];
@@ -761,10 +762,12 @@ function App() {
       conversationId,
       (eventType, event) => {
         if (eventType === 'job_snapshot') {
+          setConnectionError(null);
           applyJobSnapshot(conversationId, event.data);
           return;
         }
         if (eventType === 'complete') {
+          setConnectionError(null);
           handleStreamComplete(conversationId);
           return;
         }
@@ -953,6 +956,9 @@ function App() {
         enableSecondRound || continueLastAssistantRound,
         continueLastAssistantRound,
         (eventType, event) => {
+        if (eventType !== 'error') {
+          setConnectionError(null);
+        }
         switch (eventType) {
           case 'job_snapshot':
             applyJobSnapshot(streamConversationId, event.data);
@@ -1223,6 +1229,7 @@ function App() {
 
           case 'error':
             console.error('Stream error:', event.message);
+            setConnectionError(t('connectionLost'));
             setConversationJobStatus(streamConversationId, null);
             activeStreamConversationRef.current = null;
             inProgressConversationRef.current = null;
@@ -1232,6 +1239,8 @@ function App() {
               }
               setIsLoading(false);
             }
+            // Try to reconnect to the still-running job
+            refreshConversationJob(streamConversationId);
             break;
 
           default:
@@ -1249,7 +1258,7 @@ function App() {
       }
       console.error('Failed to send message:', error);
       if (error.message) {
-        window.alert(error.message);
+        setConnectionError(t('connectionLost'));
       }
       setConversationJobStatus(streamConversationId, null);
       activeStreamConversationRef.current = null;
@@ -1311,7 +1320,13 @@ function App() {
 
   return (
     <div className={`app ${theme} ${sidebarOpen ? 'sidebar-open' : ''}`}>
-      <button 
+      {connectionError && (
+        <div className="connection-error-bar">
+          <span className="connection-error-spinner" />
+          <span>{connectionError}</span>
+        </div>
+      )}
+      <button
         className="mobile-menu-btn"
         onClick={toggleSidebar}
         aria-label="Toggle menu"

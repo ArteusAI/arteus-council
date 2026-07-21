@@ -13,7 +13,7 @@ from .agora_eval_files import (
 logger = logging.getLogger("llm-council.attachments")
 
 # Total token budget for all attachments in a single message
-MAX_ATTACHMENT_TOKENS = 200_000
+MAX_ATTACHMENT_TOKENS = 100_000
 
 ALLOWED_EXTENSION = ".md"
 

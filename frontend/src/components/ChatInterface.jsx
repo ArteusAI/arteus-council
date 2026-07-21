@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import ReactMarkdown from 'react-markdown';
 import Stage1 from './Stage1';
 import Stage2 from './Stage2';
 import Stage3 from './Stage3';
 import ModelLabel from './ModelLabel';
+import MarkdownRenderer from './MarkdownRenderer';
 import { exportCouncilToPdf } from '../utils/exportPdf';
 import { copyCouncilAsMarkdown } from '../utils/exportMarkdown';
 import { getModelDisplayName } from '../utils/modelDisplay';
@@ -12,7 +12,7 @@ import './ChatInterface.css';
 const BOTTOM_SCROLL_THRESHOLD = 80;
 
 // Attachment limits (must stay in sync with backend/attachments.py)
-const MAX_ATTACHMENT_TOKENS = 200000;
+const MAX_ATTACHMENT_TOKENS = 100000;
 
 /**
  * Fast token estimate based on character classes.
@@ -126,7 +126,7 @@ function ScrapedLinkCard({ link, t }) {
           )}
           {isExpanded && hasMarkdown && (
             <div className="scraped-link-markdown">
-              <ReactMarkdown>{link.markdown}</ReactMarkdown>
+              <MarkdownRenderer>{link.markdown}</MarkdownRenderer>
             </div>
           )}
         </>
@@ -724,7 +724,7 @@ export default function ChatInterface({
                     )}
                     {msg.content && (
                       <div className="markdown-content">
-                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                        <MarkdownRenderer>{msg.content}</MarkdownRenderer>
                       </div>
                     )}
                   </div>
@@ -953,6 +953,7 @@ export default function ChatInterface({
                             : null
                         }
                         isRetrying={msg.loading?.stage3}
+                        costStats={msg.metadata?.cost_stats}
                       />
                     </div>
                   )}

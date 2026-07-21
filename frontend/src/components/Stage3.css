@@ -57,6 +57,92 @@
   font-weight: 600;
 }
 
+.cost-stats-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 5;
+}
+
+.cost-stats-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  opacity: 0.7;
+}
+
+.cost-stats-toggle:hover {
+  opacity: 1;
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.cost-stats-sep {
+  opacity: 0.4;
+}
+
+.cost-stats-cost {
+  color: var(--text-success);
+}
+
+.cost-stats-breakdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  padding: 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 10;
+  max-width: 520px;
+  overflow-x: auto;
+}
+
+.cost-stats-breakdown table {
+  border-collapse: collapse;
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+  white-space: nowrap;
+}
+
+.cost-stats-breakdown th {
+  padding: 4px 8px;
+  text-align: right;
+  color: var(--text-secondary);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.cost-stats-breakdown td {
+  padding: 3px 8px;
+  text-align: right;
+  color: var(--text-primary);
+}
+
+.cost-stats-breakdown th:first-child,
+.cost-stats-breakdown td:first-child {
+  text-align: left;
+}
+
+.cost-stats-model-cell {
+  color: var(--text-secondary);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .retry-stage3-btn {
   position: absolute;
   bottom: 12px;

@@ -99,7 +99,7 @@ else:
 # Council members - list of provider model identifiers
 COUNCIL_MODELS = [
     "openai/gpt-5.6-sol",
-    "google/gemini-3.5-flash",
+    "google/gemini-3.6-flash",
     "anthropic/claude-fable-5",
     "qwen/qwen3.7-max",
     "x-ai/grok-4.5",
@@ -114,12 +114,12 @@ COUNCIL_MODELS = [
 ]
 
 # Chairman model - synthesizes final response
-CHAIRMAN_MODEL = "google/gpt-5.6-sol"
+CHAIRMAN_MODEL = "openai/gpt-5.6-sol"
 
 # Default preferred models to preselect in the UI
 DEFAULT_PREFERRED_MODELS = [
     "openai/gpt-5.6-sol",
-    "google/gemini-3.5-flash"
+    "google/gemini-3.6-flash"
 ]
 
 # OpenRouter API endpoint

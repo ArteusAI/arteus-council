@@ -1,12 +1,84 @@
 import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
 import ModelLabel from './ModelLabel';
+import MarkdownRenderer from './MarkdownRenderer';
 import { formatResponseMarkdown } from '../utils/responseMarkdown';
 import './Stage3.css';
 
 const STAGE3_ERROR = 'Error: Unable to generate final synthesis.';
 
-export default function Stage3({ finalResponse, t, onRetry, isRetrying }) {
+function formatTokens(n) {
+  if (n == null) return 'n/a';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
+function formatCost(c) {
+  if (c == null) return 'n/a';
+  if (c < 0.01) return `$${c.toFixed(5)}`;
+  if (c < 1) return `$${c.toFixed(4)}`;
+  return `$${c.toFixed(2)}`;
+}
+
+const STAGE_LABELS = {
+  stage1: 'Stage 1',
+  stage2: 'Stage 2',
+  stage3: 'Stage 3',
+  round2_stage1: 'R2 Rev',
+  round2_stage2: 'R2 Rank',
+};
+
+function CostStatsBadge({ costStats, t }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!costStats) return null;
+
+  const { total_cost, total_tokens, breakdown } = costStats;
+
+  return (
+    <div className="cost-stats-badge">
+      <button
+        type="button"
+        className="cost-stats-toggle"
+        onClick={() => setExpanded(!expanded)}
+        title={t('costStatsBreakdown') || 'Cost breakdown'}
+      >
+        <span className="cost-stats-tokens">{formatTokens(total_tokens)} {t('costStatsTokens')}</span>
+        <span className="cost-stats-sep">·</span>
+        <span className="cost-stats-cost">{formatCost(total_cost)}</span>
+      </button>
+      {expanded && breakdown && (
+        <div className="cost-stats-breakdown">
+          <table>
+            <thead>
+              <tr>
+                <th>{t('costStatsStage') || 'Stage'}</th>
+                <th>{t('costStatsModel') || 'Model'}</th>
+                <th>{t('costStatsPrompt') || 'Prompt'}</th>
+                <th>{t('costStatsCompletion') || 'Completion'}</th>
+                <th>{t('costStatsReasoning') || 'Reasoning'}</th>
+                <th>{t('costStatsCost') || 'Cost'}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {breakdown.map((entry, i) => (
+                <tr key={i}>
+                  <td>{STAGE_LABELS[entry.stage] || entry.stage}</td>
+                  <td className="cost-stats-model-cell">{entry.model}</td>
+                  <td>{formatTokens(entry.prompt_tokens)}</td>
+                  <td>{formatTokens(entry.completion_tokens)}</td>
+                  <td>{formatTokens(entry.reasoning_tokens)}</td>
+                  <td>{formatCost(entry.cost)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function Stage3({ finalResponse, t, onRetry, isRetrying, costStats }) {
   const [copied, setCopied] = useState(false);
 
   if (!finalResponse) {
@@ -35,8 +107,9 @@ export default function Stage3({ finalResponse, t, onRetry, isRetrying }) {
         <div className="chairman-label">
           {t('chairmanLabel')}: <ModelLabel model={finalResponse.model} />
         </div>
-        <div className="final-text markdown-content">
-          <ReactMarkdown>{responseMarkdown}</ReactMarkdown>
+        {costStats && <CostStatsBadge costStats={costStats} t={t} />}
+        <div className="final-text">
+          <MarkdownRenderer>{responseMarkdown}</MarkdownRenderer>
         </div>
         {isError && onRetry && (
           <button
