@@ -32,12 +32,6 @@
   opacity: 0.6;
 }
 
-/* When two buttons are present, stack them side by side */
-.copy-response-btn + .copy-response-btn {
-  right: auto;
-  left: 12px;
-}
-
 .copy-response-btn:hover {
   opacity: 1;
   background: var(--bg-primary);
@@ -68,15 +62,11 @@
   cursor: wait;
 }
 
-/* Share button + dropdown */
+/* Share button (left side) + dropdown */
 .share-wrapper {
   position: absolute;
   bottom: 12px;
-  right: auto;
-  left: auto;
-  /* center between copy (right) and hackmd (left) */
-  left: 50%;
-  transform: translateX(-50%);
+  left: 12px;
 }
 
 .share-btn.done {

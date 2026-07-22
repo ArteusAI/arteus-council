@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from .config import COUNCIL_PUBLIC_BASE_URL
+from .config import COUNCIL_PUBLIC_BASE_URL  # noqa: F401 — kept for compatibility
 
 SHARED_DIR = os.path.join("data", "shared")
 
@@ -18,13 +18,6 @@ def _ensure_dir() -> None:
 
 def _shared_path(token: str) -> str:
     return os.path.join(SHARED_DIR, f"{token}.json")
-
-
-def _build_share_url(token: str) -> str:
-    base = (COUNCIL_PUBLIC_BASE_URL or "").strip().rstrip("/")
-    if not base:
-        base = "https://api.arteus.us/council"
-    return f"{base}/share/{token}"
 
 
 def create_shared_answer(
@@ -86,7 +79,6 @@ def create_shared_answer(
 
     return {
         "token": token,
-        "share_url": _build_share_url(token),
     }
 
 
