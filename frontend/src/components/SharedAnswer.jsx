@@ -23,6 +23,7 @@ function t(lang, key) {
 export default function SharedAnswer({ token }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [scrollProgress, setScrollProgress] = useState(0);
   const [theme, setTheme] = useState(() => {
     try {
       return localStorage.getItem('arteusTheme') || 'light';
@@ -32,6 +33,33 @@ export default function SharedAnswer({ token }) {
   });
 
   const lang = detectLanguage();
+
+  useEffect(() => {
+    const onScroll = () => {
+      const scrollTop = window.scrollY;
+      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+      setScrollProgress(docHeight > 0 ? scrollTop / docHeight : 0);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [data]);
+
+  // Allow the page to scroll: #root has overflow:hidden globally for the
+  // main app, but the shared answer page needs document-level scroll.
+  useEffect(() => {
+    const root = document.getElementById('root');
+    if (root) {
+      root.style.overflow = 'auto';
+      root.style.height = 'auto';
+    }
+    return () => {
+      if (root) {
+        root.style.overflow = '';
+        root.style.height = '';
+      }
+    };
+  }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -106,6 +134,12 @@ export default function SharedAnswer({ token }) {
       <button className="shared-theme-toggle" onClick={toggleTheme}>
         {theme === 'light' ? '🌙' : '☀️'}
       </button>
+      <div className="scroll-rail">
+        <div
+          className="scroll-rail-thumb"
+          style={{ height: `${Math.max(3, scrollProgress * 100)}%` }}
+        />
+      </div>
 
       <div className="shared-container">
         <div className="shared-header">
@@ -114,14 +148,15 @@ export default function SharedAnswer({ token }) {
         </div>
 
         {data.question && (
-          <details className="shared-details">
-            <summary>{t(lang, 'questionLabel')}</summary>
-            <div className="shared-question">{data.question}</div>
-          </details>
+          <div className="shared-question">{data.question}</div>
         )}
 
+        <div className="shared-answer-content">
+          <MarkdownRenderer>{responseMarkdown}</MarkdownRenderer>
+        </div>
+
         {rankings.length > 0 && (
-          <details className="shared-details">
+          <details className="shared-details shared-details-bottom">
             <summary>{t(lang, 'winnersLabel')}</summary>
             <ol className="shared-rankings">
               {rankings.slice(0, 5).map((item, i) => (
@@ -135,16 +170,11 @@ export default function SharedAnswer({ token }) {
                 </li>
               ))}
             </ol>
+            <div className="shared-chairman">
+              {t(lang, 'chairmanLabel')}: {getModelDisplayName(chairmanModel)}
+            </div>
           </details>
         )}
-
-        <div className="shared-chairman">
-          {t(lang, 'chairmanLabel')}: {getModelDisplayName(chairmanModel)}
-        </div>
-
-        <div className="shared-answer-content">
-          <MarkdownRenderer>{responseMarkdown}</MarkdownRenderer>
-        </div>
       </div>
     </div>
   );

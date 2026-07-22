@@ -7,7 +7,6 @@
 .final-response {
   background: var(--bg-primary);
   padding: 20px;
-  padding-bottom: 52px;
   border-radius: 6px;
   border: 1px solid var(--border-stage3);
   transition: background 0.3s ease, border-color 0.3s ease;

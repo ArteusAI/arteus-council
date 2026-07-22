@@ -6,91 +6,130 @@
   transition: background 0.3s ease, color 0.3s ease;
 }
 
+/* Scroll progress rail — thin bar on the right edge */
+.scroll-rail {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 3px;
+  height: 100vh;
+  background: transparent;
+  z-index: 90;
+  pointer-events: none;
+}
+
+.scroll-rail-thumb {
+  width: 100%;
+  background: var(--accent-primary, #4a90e2);
+  border-radius: 0;
+  opacity: 0.4;
+  transition: height 0.08s linear, opacity 0.3s ease;
+}
+
+.scroll-rail:hover .scroll-rail-thumb,
+.scroll-rail-thumb {
+  opacity: 0.55;
+}
+
 .shared-theme-toggle {
   position: fixed;
   top: 16px;
   right: 20px;
   z-index: 100;
-  width: 40px;
-  height: 40px;
-  border: 1px solid var(--border-primary);
+  width: 36px;
+  height: 36px;
+  border: none;
   border-radius: 8px;
-  background: var(--bg-secondary);
+  background: transparent;
   cursor: pointer;
   font-size: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  transition: opacity 0.2s ease;
+  opacity: 0.5;
 }
 
 .shared-theme-toggle:hover {
-  border-color: var(--accent-primary);
+  opacity: 1;
 }
 
 .shared-container {
   max-width: 820px;
   margin: 0 auto;
-  padding: 60px 24px 80px;
+  padding: 24px 24px 80px;
 }
 
+/* Header: logo + name in one line */
 .shared-header {
-  text-align: center;
-  margin-bottom: 32px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 24px;
 }
 
 .shared-logo {
-  width: 48px;
-  height: 48px;
+  width: 32px;
+  height: 32px;
   object-fit: contain;
-  margin: 0 auto 12px;
-  display: block;
+  flex-shrink: 0;
 }
 
 .shared-app-name {
   font-family: Cinzel, serif;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
   color: var(--text-primary);
   margin: 0;
+  line-height: 1;
 }
 
+/* Collapsible sections — no borders, minimal */
 .shared-details {
-  margin-bottom: 12px;
-  border: 1px solid var(--border-primary);
-  border-radius: 8px;
-  background: var(--bg-secondary);
-  overflow: hidden;
+  margin-bottom: 8px;
 }
 
 .shared-details summary {
-  padding: 10px 16px;
+  padding: 6px 0;
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text-tertiary);
   user-select: none;
   transition: color 0.2s ease;
+  list-style: none;
+}
+
+.shared-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.shared-details summary::before {
+  content: '▸ ';
+  font-size: 11px;
+}
+
+.shared-details[open] summary::before {
+  content: '▾ ';
 }
 
 .shared-details summary:hover {
   color: var(--text-primary);
 }
 
-.shared-details[open] summary {
-  border-bottom: 1px solid var(--border-primary);
-}
-
 .shared-question {
-  padding: 12px 16px;
-  font-size: 14px;
-  color: var(--text-secondary);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
   white-space: pre-wrap;
   line-height: 1.6;
+  margin-bottom: 24px;
+  padding-left: 12px;
+  border-left: 3px solid var(--accent-primary, #4a90e2);
 }
 
 .shared-rankings {
-  padding: 12px 16px 12px 36px;
+  padding: 4px 0 4px 20px;
   margin: 0;
   font-size: 13px;
   color: var(--text-secondary);
@@ -111,18 +150,19 @@
   font-size: 12px;
   font-family: monospace;
   font-weight: 600;
-  color: var(--text-success, #4caf50);
-  margin-bottom: 16px;
-  padding-left: 4px;
+  color: var(--text-tertiary);
+  margin-top: 8px;
 }
 
+/* Answer content — no border, no background, just text */
 .shared-answer-content {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-primary);
-  border-radius: 8px;
-  padding: 24px;
   line-height: 1.7;
   font-size: 15px;
+}
+
+/* Winners section at the bottom */
+.shared-details-bottom {
+  margin-top: 32px;
 }
 
 .shared-loading {
@@ -156,11 +196,19 @@
 
 @media (max-width: 600px) {
   .shared-container {
-    padding: 48px 16px 60px;
+    padding: 16px 16px 60px;
   }
 
   .shared-answer-content {
-    padding: 16px;
     font-size: 14px;
+  }
+
+  .shared-logo {
+    width: 28px;
+    height: 28px;
+  }
+
+  .shared-app-name {
+    font-size: 16px;
   }
 }
