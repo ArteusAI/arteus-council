@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker';
 import Stage1 from './Stage1';
 import Stage2 from './Stage2';
 import Stage3 from './Stage3';
@@ -11,7 +11,7 @@ import { copyCouncilAsMarkdown } from '../utils/exportMarkdown';
 import { getModelDisplayName } from '../utils/modelDisplay';
 import './ChatInterface.css';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
+pdfjsLib.GlobalWorkerOptions.workerPort = new PdfWorker();
 
 const BOTTOM_SCROLL_THRESHOLD = 80;
 
@@ -108,7 +108,11 @@ async function extractPdfText(file) {
     }
   }
 
-  await pdf.destroy();
+  try {
+    await loadingTask.destroy();
+  } catch {
+    // cleanup best-effort
+  }
 
   if (pages.length === 0) {
     throw new Error('NO_TEXT');
@@ -1008,6 +1012,8 @@ export default function ChatInterface({
                         }
                         isRetrying={msg.loading?.stage3}
                         costStats={msg.metadata?.cost_stats}
+                        conversationId={conversation?.id}
+                        messageIndex={index}
                       />
                     </div>
                   )}

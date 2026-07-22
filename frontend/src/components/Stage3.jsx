@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import ModelLabel from './ModelLabel';
 import MarkdownRenderer from './MarkdownRenderer';
 import { formatResponseMarkdown } from '../utils/responseMarkdown';
+import { api } from '../api';
 import './Stage3.css';
 
 const STAGE3_ERROR = 'Error: Unable to generate final synthesis.';
@@ -78,8 +79,24 @@ function CostStatsBadge({ costStats, t }) {
   );
 }
 
-export default function Stage3({ finalResponse, t, onRetry, isRetrying, costStats }) {
+export default function Stage3({ finalResponse, t, onRetry, isRetrying, costStats, conversationId, messageIndex }) {
   const [copied, setCopied] = useState(false);
+  const [hackmdState, setHackmdState] = useState('idle');
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareState, setShareState] = useState('idle'); // idle | creating | done | error
+  const [shareUrl, setShareUrl] = useState('');
+  const shareRef = useRef(null);
+
+  useEffect(() => {
+    if (!shareOpen) return;
+    const onClick = (e) => {
+      if (shareRef.current && !shareRef.current.contains(e.target)) {
+        setShareOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [shareOpen]);
 
   if (!finalResponse) {
     return null;
@@ -97,6 +114,37 @@ export default function Stage3({ finalResponse, t, onRetry, isRetrying, costStat
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error('Failed to copy text:', err);
+    }
+  };
+
+  const handleHackmdExport = async () => {
+    setHackmdState('exporting');
+    try {
+      await navigator.clipboard.writeText(responseMarkdown);
+      window.open('https://hackmd.io/new', '_blank', 'noopener,noreferrer');
+      setHackmdState('done');
+      setTimeout(() => setHackmdState('idle'), 3000);
+    } catch (err) {
+      console.error('Failed to export to HackMD:', err);
+      setHackmdState('error');
+      setTimeout(() => setHackmdState('idle'), 3000);
+    }
+  };
+
+  const handleShare = async (requiresLogin) => {
+    if (!conversationId || messageIndex == null) return;
+    setShareOpen(false);
+    setShareState('creating');
+    try {
+      const result = await api.createShare(conversationId, messageIndex, requiresLogin);
+      setShareUrl(result.share_url);
+      await navigator.clipboard.writeText(result.share_url);
+      setShareState('done');
+      setTimeout(() => setShareState('idle'), 4000);
+    } catch (err) {
+      console.error('Failed to create share link:', err);
+      setShareState('error');
+      setTimeout(() => setShareState('idle'), 4000);
     }
   };
 
@@ -135,28 +183,126 @@ export default function Stage3({ finalResponse, t, onRetry, isRetrying, costStat
           </button>
         )}
         {!isError && (
-          <button
-            className={`copy-response-btn ${copied ? 'copied' : ''}`}
-            onClick={handleCopy}
-            title={t('copyAnswer')}
-          >
-            {copied ? (
-              <>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
-                <span>{t('copiedToClipboard')}</span>
-              </>
-            ) : (
-              <>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                </svg>
-                <span>{t('copyAnswer')}</span>
-              </>
+          <>
+            <button
+              className={`copy-response-btn ${copied ? 'copied' : ''}`}
+              onClick={handleCopy}
+              title={t('copyAnswer')}
+            >
+              {copied ? (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                  <span>{t('copiedToClipboard')}</span>
+                </>
+              ) : (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                  <span>{t('copyAnswer')}</span>
+                </>
+              )}
+            </button>
+            <button
+              className={`copy-response-btn hackmd-export-btn ${hackmdState !== 'idle' ? hackmdState : ''}`}
+              onClick={handleHackmdExport}
+              disabled={hackmdState === 'exporting'}
+              title={hackmdState === 'done' ? t('hackmdCopiedHint') : t('exportToHackmd')}
+            >
+              {hackmdState === 'exporting' ? (
+                <>
+                  <span className="retry-spinner" />
+                  <span>{t('exportToHackmd')}</span>
+                </>
+              ) : hackmdState === 'done' ? (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                  <span>{t('hackmdCopiedHint')}</span>
+                </>
+              ) : hackmdState === 'error' ? (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                  <span>{t('exportToHackmd')}</span>
+                </>
+              ) : (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                    <polyline points="15 3 21 3 21 9"></polyline>
+                    <line x1="10" y1="14" x2="21" y2="3"></line>
+                  </svg>
+                  <span>{t('exportToHackmd')}</span>
+                </>
+              )}
+            </button>
+            {conversationId && messageIndex != null && (
+              <div className="share-wrapper" ref={shareRef}>
+                <button
+                  className={`copy-response-btn share-btn ${shareState !== 'idle' ? shareState : ''}`}
+                  onClick={() => shareState === 'idle' && setShareOpen(!shareOpen)}
+                  disabled={shareState === 'creating'}
+                  title={shareState === 'done' ? t('shareLinkCopied') : t('share')}
+                >
+                  {shareState === 'creating' ? (
+                    <>
+                      <span className="retry-spinner" />
+                      <span>{t('share')}</span>
+                    </>
+                  ) : shareState === 'done' ? (
+                    <>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                      </svg>
+                      <span>{t('shareLinkCopied')}</span>
+                    </>
+                  ) : shareState === 'error' ? (
+                    <>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                      </svg>
+                      <span>{t('share')}</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="18" cy="5" r="3"/>
+                        <circle cx="6" cy="12" r="3"/>
+                        <circle cx="18" cy="19" r="3"/>
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+                      </svg>
+                      <span>{t('share')}</span>
+                    </>
+                  )}
+                </button>
+                {shareOpen && (
+                  <div className="share-dropdown">
+                    <button
+                      className="share-option"
+                      onClick={() => handleShare(false)}
+                    >
+                      {t('sharePublic')}
+                    </button>
+                    <button
+                      className="share-option"
+                      onClick={() => handleShare(true)}
+                    >
+                      {t('shareRequiresLogin')}
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
-          </button>
+          </>
         )}
       </div>
     </div>

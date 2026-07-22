@@ -13,6 +13,7 @@
   position: relative;
 }
 
+/* Action buttons row */
 .copy-response-btn {
   position: absolute;
   bottom: 12px;
@@ -31,6 +32,12 @@
   opacity: 0.6;
 }
 
+/* When two buttons are present, stack them side by side */
+.copy-response-btn + .copy-response-btn {
+  right: auto;
+  left: 12px;
+}
+
 .copy-response-btn:hover {
   opacity: 1;
   background: var(--bg-primary);
@@ -43,6 +50,85 @@
   background: var(--bg-primary);
   border-color: #4caf50;
   color: #4caf50;
+}
+
+.hackmd-export-btn.done {
+  opacity: 1;
+  border-color: #4caf50;
+  color: #4caf50;
+}
+
+.hackmd-export-btn.error {
+  opacity: 1;
+  border-color: #e53935;
+  color: #e53935;
+}
+
+.hackmd-export-btn:disabled {
+  cursor: wait;
+}
+
+/* Share button + dropdown */
+.share-wrapper {
+  position: absolute;
+  bottom: 12px;
+  right: auto;
+  left: auto;
+  /* center between copy (right) and hackmd (left) */
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.share-btn.done {
+  opacity: 1;
+  border-color: #4caf50;
+  color: #4caf50;
+}
+
+.share-btn.error {
+  opacity: 1;
+  border-color: #e53935;
+  color: #e53935;
+}
+
+.share-btn:disabled {
+  cursor: wait;
+}
+
+.share-dropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  white-space: nowrap;
+  z-index: 10;
+}
+
+.share-option {
+  display: block;
+  width: 100%;
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.share-option:hover {
+  background: var(--bg-hover, var(--bg-secondary));
+}
+
+.share-option + .share-option {
+  border-top: 1px solid var(--border-primary);
 }
 
 .copy-response-btn span {

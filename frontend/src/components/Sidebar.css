@@ -90,6 +90,42 @@
   padding: 8px;
 }
 
+.sidebar-search {
+  position: relative;
+  margin-bottom: 8px;
+  padding: 0 4px;
+}
+
+.sidebar-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.sidebar-search-input {
+  width: 100%;
+  padding: 8px 10px 8px 34px;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s ease;
+  box-sizing: border-box;
+}
+
+.sidebar-search-input:focus {
+  border-color: var(--accent-primary);
+}
+
+.sidebar-search-input::placeholder {
+  color: var(--text-tertiary);
+}
+
 .no-conversations {
   padding: 16px;
   text-align: center;
@@ -311,20 +347,25 @@
 }
 
 .personalization-btn {
-  width: 100%;
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 10px;
-  margin-bottom: 12px;
+  padding: 0;
   border: 1px solid var(--border-primary);
   border-radius: 8px;
   background: var(--bg-primary);
   color: var(--text-secondary);
-  font-size: 13px;
   cursor: pointer;
   transition: all 0.2s ease;
+}
+
+.personalization-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
 }
 
 .personalization-btn:hover {
@@ -377,11 +418,11 @@
 .footer-controls {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
 }
 
 .theme-toggle-btn {
+  flex: 0 0 40px;
   background: var(--bg-primary);
   border: 1px solid var(--border-primary);
   border-radius: 8px;
@@ -402,6 +443,7 @@
 
 .lang-select {
   flex: 1;
+  min-width: 0;
   padding: 8px;
   border-radius: 8px;
   border: 1px solid var(--border-primary);

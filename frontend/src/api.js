@@ -513,4 +513,46 @@ export const api = {
       }
     }
   },
+
+  /**
+   * Create a shareable snapshot of a conversation's final answer.
+   */
+  async createShare(conversationId, messageIndex, requiresLogin) {
+    const response = await fetch(
+      `${API_BASE}/api/conversations/${conversationId}/share`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...withAuth(),
+        },
+        body: JSON.stringify({
+          message_index: messageIndex,
+          requires_login: requiresLogin,
+        }),
+      }
+    );
+    if (!response.ok) {
+      throw new Error(await extractErrorDetail(response, 'Failed to create share link'));
+    }
+    return response.json();
+  },
+
+  /**
+   * Fetch a shared answer snapshot by token (no auth required).
+   */
+  async getSharedAnswer(token) {
+    const response = await fetch(
+      `${API_BASE}/api/shared/${token}`,
+      {
+        headers: {
+          ...withAuth(),
+        },
+      }
+    );
+    if (!response.ok) {
+      throw new Error(await extractErrorDetail(response, 'Failed to load shared answer'));
+    }
+    return response.json();
+  },
 };

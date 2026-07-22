@@ -17,7 +17,7 @@ logger = logging.getLogger("llm-council")
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from . import storage
 from .agora_eval_files import resolve_eval_file
@@ -56,6 +56,7 @@ from .council import (
 )
 from .firecrawl import process_message_links
 from .jobs import JobConflictError, JobNotFoundError, job_manager
+from .shared import create_shared_answer, get_shared_answer
 
 
 def _prefixed_path(path: str) -> str:
@@ -345,6 +346,61 @@ async def delete_all_conversations(user: User = Depends(get_current_user)):
     await job_manager.cancel_all_for_user(user.user_id)
     count = storage.delete_all_conversations(user.user_id)
     return {"deleted_count": count}
+
+
+class ShareRequest(BaseModel):
+    """Request to share an answer."""
+    message_index: int = 0
+    requires_login: bool = False
+
+
+@router.post("/api/conversations/{conversation_id}/share")
+async def share_answer(
+    conversation_id: str,
+    request: ShareRequest,
+    user: User = Depends(get_current_user),
+):
+    """Create a shareable snapshot of a conversation's final answer."""
+    conversation = storage.get_conversation(user.user_id, conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    messages = conversation.get("messages") or []
+    # Find the last assistant message with a stage3 response.
+    index = request.message_index
+    if index < 0:
+        index = len(messages) - 1
+    if index < 0 or index >= len(messages):
+        raise HTTPException(status_code=400, detail="No message to share")
+
+    try:
+        result = create_shared_answer(
+            user_id=user.user_id,
+            conversation=conversation,
+            message_index=index,
+            requires_login=request.requires_login,
+            author=user.username or user.email or "",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return result
+
+
+@router.get("/api/shared/{token}")
+async def get_shared(
+    token: str,
+    user: Optional[User] = Depends(get_current_user_optional),
+):
+    """Public endpoint to fetch a shared answer snapshot."""
+    snapshot = get_shared_answer(token)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Shared answer not found")
+
+    if snapshot.get("requires_login") and not user:
+        raise HTTPException(status_code=401, detail="Login required to view this answer")
+
+    return snapshot
 
 
 def _validated_attachments(request: "SendMessageRequest") -> List[dict]:

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import LoginInterface from './components/LoginInterface';
+import SharedAnswer from './components/SharedAnswer';
 import { api } from './api';
 import { translate } from './i18n';
 import { isAgoraModel } from './utils/modelDisplay';
@@ -208,6 +209,7 @@ function App() {
       return { ...prev, messages };
     });
 
+    let retryStreamError = false;
     try {
       await api.retryStage3Stream(
         streamConversationId,
@@ -237,15 +239,11 @@ function App() {
               });
               break;
             case 'error':
-              updateConversationState((prev) => {
-                const messages = [...prev.messages];
-                const msg = messages[messageIndex];
-                if (msg && msg.loading) {
-                  msg.loading = { ...msg.loading, stage3: false };
-                }
-                return { ...prev, messages };
-              });
-              console.error('Stage 3 retry error:', event.message);
+              retryStreamError = true;
+              setConnectionError(t('connectionLost'));
+              console.error('Stage 3 retry stream error:', event.message);
+              // Keep the loading spinner on — the retry job may still be
+              // running server-side. The orange bar indicates reconnect.
               break;
             case 'complete':
               break;
@@ -258,6 +256,11 @@ function App() {
     } catch (error) {
       if (error.name === 'AbortError') return;
       console.error('Failed to retry stage 3:', error);
+      if (retryStreamError) {
+        // Stream error already handled by the 'error' case above —
+        // intermediate results are kept, orange bar is shown.
+        return;
+      }
       if (error.message) {
         setConnectionError(t('connectionLost'));
       }
@@ -726,21 +729,22 @@ function App() {
     );
   }, [loadConversation, loadConversations, setConversationJobStatus, t]);
 
+  const refreshConversationJobRef = useRef(null);
+
   const handleStreamFailure = useCallback((conversationId, shouldReload = false) => {
-    setConversationJobStatus(conversationId, null);
-    if (activeStreamConversationRef.current === conversationId) {
-      activeStreamConversationRef.current = null;
-    }
-    if (inProgressConversationRef.current?.id === conversationId) {
-      inProgressConversationRef.current = null;
-    }
-    if (currentConversationIdRef.current === conversationId) {
-      if (shouldReload) {
-        loadConversation(conversationId, { showOverlay: false });
+    // Connection lost during reconnect — keep intermediate results on
+    // screen, show the orange bar, and schedule another reconnect attempt.
+    setConnectionError(t('connectionLost'));
+    setConversationJobStatus(conversationId, 'running');
+    // Don't clear inProgressConversationRef or setIsLoading(false) —
+    // the job may still be running server-side. The orange bar tells
+    // the user we're trying to reconnect.
+    setTimeout(() => {
+      if (currentConversationIdRef.current === conversationId) {
+        refreshConversationJobRef.current?.(conversationId);
       }
-      setIsLoading(false);
-    }
-  }, [loadConversation, setConversationJobStatus]);
+    }, 3000);
+  }, [setConversationJobStatus, t]);
 
   const connectToJobStream = useCallback((conversationId) => {
     if (
@@ -772,8 +776,8 @@ function App() {
           return;
         }
         if (eventType === 'error') {
-          console.error('Stream error:', event.message);
-          handleStreamFailure(conversationId, true);
+          console.error('Stream error (reconnect):', event.message);
+          handleStreamFailure(conversationId, false);
         }
       },
       abortController.signal
@@ -804,11 +808,14 @@ function App() {
         connectToJobStream(conversationId);
       } else if (currentConversationIdRef.current === conversationId) {
         setIsLoading(false);
+        setConnectionError(null);
       }
     } catch (error) {
       console.warn('Failed to refresh conversation job:', error);
     }
   }, [applyJobSnapshot, connectToJobStream]);
+
+  refreshConversationJobRef.current = refreshConversationJob;
 
   useEffect(() => {
     if (!currentConversationId || currentConversation?.id !== currentConversationId) {
@@ -846,6 +853,7 @@ function App() {
     setConversationJobStatus(streamConversationId, 'running');
 
     setIsLoading(true);
+    let streamErrorOccurred = false;
     try {
       if (continueLastAssistantRound) {
         setCurrentConversation((prev) => {
@@ -960,8 +968,7 @@ function App() {
           setConnectionError(null);
         }
         switch (eventType) {
-          case 'job_snapshot':
-            applyJobSnapshot(streamConversationId, event.data);
+          case 'job_snapshot':            applyJobSnapshot(streamConversationId, event.data);
             break;
 
           case 'scraping_start':
@@ -1229,16 +1236,13 @@ function App() {
 
           case 'error':
             console.error('Stream error:', event.message);
+            streamErrorOccurred = true;
             setConnectionError(t('connectionLost'));
-            setConversationJobStatus(streamConversationId, null);
-            activeStreamConversationRef.current = null;
-            inProgressConversationRef.current = null;
-            if (streamConversationId === currentConversationIdRef.current) {
-              if (continueLastAssistantRound) {
-                loadConversation(streamConversationId, { showOverlay: false });
-              }
-              setIsLoading(false);
-            }
+            // Keep intermediate results visible — the job may still be
+            // running server-side. Don't clear inProgressConversationRef
+            // or setIsLoading(false): the orange bar tells the user we're
+            // reconnecting, and the partial results stay on screen.
+            setConversationJobStatus(streamConversationId, 'running');
             // Try to reconnect to the still-running job
             refreshConversationJob(streamConversationId);
             break;
@@ -1257,6 +1261,14 @@ function App() {
         return;
       }
       console.error('Failed to send message:', error);
+      // If the SSE stream already reported an error (connection lost
+      // mid-stream), the 'error' case above has already handled it —
+      // intermediate results are kept and a reconnect is attempted.
+      // Only roll back optimistic messages for genuine HTTP failures
+      // (400, 403, 404, etc.) where the stream never started.
+      if (streamErrorOccurred) {
+        return;
+      }
       if (error.message) {
         setConnectionError(t('connectionLost'));
       }
@@ -1281,6 +1293,14 @@ function App() {
       }
     }
   };
+
+  // Early route: /share/{token} — standalone shared answer page, no auth needed
+  const shareMatch = typeof window !== 'undefined'
+    ? window.location.pathname.match(/\/share\/([A-Za-z0-9_-]+)\/?$/)
+    : null;
+  if (shareMatch) {
+    return <SharedAnswer token={shareMatch[1]} />;
+  }
 
   if (isMobile) {
     return (

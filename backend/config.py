@@ -83,6 +83,7 @@ PEER_EVALUATION_TIMEOUT_SECONDS = max(
 )
 # Reasoning effort for OpenRouter models ("max", "xhigh", "high", "medium", "low", "minimal", "none")
 OPENROUTER_REASONING_EFFORT = os.getenv("OPENROUTER_REASONING_EFFORT", "max")
+
 COUNCIL_PUBLIC_BASE_URL = (
     os.getenv("COUNCIL_PUBLIC_BASE_URL")
     or os.getenv("PUBLIC_BASE_URL")
