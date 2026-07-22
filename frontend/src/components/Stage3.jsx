@@ -170,7 +170,7 @@ export default function Stage3({ finalResponse, t, onRetry, isRetrying, costStat
           </button>
         )}
         {!isError && (
-          <>
+          <div className="final-actions">
             {conversationId && messageIndex != null && (
               <div className="share-wrapper" ref={shareRef}>
                 <button
@@ -252,7 +252,7 @@ export default function Stage3({ finalResponse, t, onRetry, isRetrying, costStat
                 </>
               )}
             </button>
-          </>
+          </div>
         )}
       </div>
     </div>
