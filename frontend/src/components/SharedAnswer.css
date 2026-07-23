@@ -26,21 +26,22 @@
   transition: height 0.08s linear, opacity 0.3s ease;
 }
 
-.scroll-rail:hover .scroll-rail-thumb,
-.scroll-rail-thumb {
-  opacity: 0.55;
-}
-
-.shared-theme-toggle {
+.shared-actions {
   position: fixed;
   top: 16px;
   right: 20px;
   z-index: 100;
+  display: flex;
+  gap: 4px;
+}
+
+.shared-action-btn {
   width: 36px;
   height: 36px;
   border: none;
   border-radius: 8px;
   background: transparent;
+  color: var(--text-primary);
   cursor: pointer;
   font-size: 18px;
   display: flex;
@@ -50,7 +51,7 @@
   opacity: 0.5;
 }
 
-.shared-theme-toggle:hover {
+.shared-action-btn:hover {
   opacity: 1;
 }
 
@@ -210,5 +211,100 @@
 
   .shared-app-name {
     font-size: 16px;
+  }
+}
+
+/* ================= PRINT MODE ================= */
+@page {
+  margin: 16mm 18mm;
+}
+
+@media print {
+  /* Always print light — redefine the palette for both themes.
+     html[data-theme] boosts specificity above App.css/index.css dark blocks. */
+  :root,
+  html[data-theme='dark'] {
+    --bg-primary: #ffffff;
+    --bg-secondary: #ffffff;
+    --bg-code: #f5f5f5;
+    --text-primary: #1a1a1a;
+    --text-secondary: #444444;
+    --text-tertiary: #666666;
+    --border-primary: #dddddd;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+  }
+
+  .shared-answer-app {
+    background: #ffffff !important;
+    color: #1a1a1a !important;
+  }
+
+  /* Hide interactive / fixed elements (fixed repeats on every printed page) */
+  .shared-actions,
+  .toc-minimap,
+  .scroll-rail,
+  .mermaid-expand-btn,
+  .mermaid-fullscreen-overlay,
+  .shared-loading-spinner,
+  .shared-details {
+    display: none !important;
+  }
+
+  /* Full paper width; @page margins handle the rest */
+  .shared-container {
+    max-width: none;
+    padding: 0;
+  }
+
+  .shared-answer-content {
+    font-size: 11.5pt;
+    line-height: 1.55;
+  }
+
+  /* Code blocks: light background, dark text */
+  .shared-answer-content pre {
+    background: #f5f5f5 !important;
+    color: #1a1a1a !important;
+  }
+
+  .shared-answer-content pre code,
+  .shared-answer-content :not(pre) > code {
+    background: transparent !important;
+    color: #1a1a1a !important;
+  }
+
+  /* Logo + name: keep monochrome */
+  .shared-logo {
+    filter: grayscale(1);
+  }
+
+  /* Question block: quiet gray border */
+  .shared-question {
+    border-left-color: #999999;
+  }
+
+  /* Dark-rendered mermaid SVGs: invert to a light grayscale for paper */
+  [data-theme='dark'] .mermaid-container svg {
+    filter: invert(0.93) hue-rotate(180deg);
+  }
+
+  /* Page-break discipline */
+  .shared-answer-content h1,
+  .shared-answer-content h2,
+  .shared-answer-content h3,
+  .shared-answer-content h4 {
+    break-after: avoid;
+  }
+
+  .shared-answer-content pre,
+  .shared-answer-content table,
+  .shared-answer-content blockquote,
+  .mermaid-container,
+  .shared-question {
+    break-inside: avoid;
   }
 }

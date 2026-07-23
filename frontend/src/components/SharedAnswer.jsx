@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import { translations } from '../i18n';
 import { getModelDisplayName } from '../utils/modelDisplay';
 import { formatResponseMarkdown } from '../utils/responseMarkdown';
 import MarkdownRenderer from './MarkdownRenderer';
+import TOCMinimap from './TOCMinimap';
 import './SharedAnswer.css';
 
 function detectLanguage() {
@@ -23,7 +24,9 @@ function t(lang, key) {
 export default function SharedAnswer({ token }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [scrollProgress, setScrollProgress] = useState(0);
+  const [tocItems, setTocItems] = useState([]);
+  const contentRef = useRef(null);
+  const railThumbRef = useRef(null);
   const [theme, setTheme] = useState(() => {
     try {
       return localStorage.getItem('arteusTheme') || 'light';
@@ -34,32 +37,44 @@ export default function SharedAnswer({ token }) {
 
   const lang = detectLanguage();
 
+  // Scroll progress bar (right edge) — updated via ref to avoid
+  // re-rendering the whole page (and remounting markdown) on every scroll
   useEffect(() => {
     const onScroll = () => {
-      const scrollTop = window.scrollY;
-      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-      setScrollProgress(docHeight > 0 ? scrollTop / docHeight : 0);
+      const fullHeight = document.documentElement.scrollHeight - window.innerHeight;
+      const progress = fullHeight > 0 ? window.scrollY / fullHeight : 0;
+      if (railThumbRef.current) {
+        railThumbRef.current.style.height = `${Math.max(3, progress * 100)}%`;
+      }
     };
     window.addEventListener('scroll', onScroll, { passive: true });
     onScroll();
     return () => window.removeEventListener('scroll', onScroll);
-  }, [data]);
+  }, []);
 
-  // Allow the page to scroll: #root has overflow:hidden globally for the
-  // main app, but the shared answer page needs document-level scroll.
+  // Allow the page to scroll. Also drop the 100vw width: once the vertical
+  // scrollbar appears, 100vw exceeds the visible width -> horizontal scrollbar.
   useEffect(() => {
     const root = document.getElementById('root');
     if (root) {
       root.style.overflow = 'auto';
       root.style.height = 'auto';
+      root.style.width = '100%';
     }
     return () => {
       if (root) {
         root.style.overflow = '';
         root.style.height = '';
+        root.style.width = '';
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (data?.title) {
+      document.title = data.title;
+    }
+  }, [data]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -90,6 +105,25 @@ export default function SharedAnswer({ token }) {
     };
   }, [token]);
 
+  // Extract TOC items from rendered headings (re-extract on theme change,
+  // since re-rendered markdown replaces heading DOM elements)
+  useEffect(() => {
+    if (!data || !contentRef.current) return;
+    // Small delay to let MarkdownRenderer + Mermaid finish rendering
+    const timer = setTimeout(() => {
+      const els = contentRef.current
+        ? contentRef.current.querySelectorAll('h1, h2, h3, h4, h5, h6')
+        : [];
+      const items = Array.from(els).map((el) => ({
+        title: el.textContent || '',
+        url: `#${el.id}`,
+        depth: parseInt(el.tagName[1], 10),
+      }));
+      setTocItems(items);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [data, theme]);
+
   const toggleTheme = () => {
     setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
   };
@@ -99,12 +133,30 @@ export default function SharedAnswer({ token }) {
     ? `${baseUrl}council_logo_black.png`
     : `${baseUrl}council_logo_white.png`;
 
+  const actionButtons = (
+    <div className="shared-actions">
+      <button
+        className="shared-action-btn"
+        onClick={() => window.print()}
+        title={t(lang, 'printPage')}
+        aria-label={t(lang, 'printPage')}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 9V2h12v7"/>
+          <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+          <rect x="6" y="14" width="12" height="8"/>
+        </svg>
+      </button>
+      <button className="shared-action-btn" onClick={toggleTheme} title="Theme">
+        {theme === 'light' ? '🌙' : '☀️'}
+      </button>
+    </div>
+  );
+
   if (error) {
     return (
       <div className={`shared-answer-app ${theme}`}>
-        <button className="shared-theme-toggle" onClick={toggleTheme}>
-          {theme === 'light' ? '🌙' : '☀️'}
-        </button>
+        {actionButtons}
         <div className="shared-error">
           <p>{error}</p>
         </div>
@@ -115,9 +167,7 @@ export default function SharedAnswer({ token }) {
   if (!data) {
     return (
       <div className={`shared-answer-app ${theme}`}>
-        <button className="shared-theme-toggle" onClick={toggleTheme}>
-          {theme === 'light' ? '🌙' : '☀️'}
-        </button>
+        {actionButtons}
         <div className="shared-loading">
           <div className="shared-loading-spinner" />
         </div>
@@ -131,15 +181,15 @@ export default function SharedAnswer({ token }) {
 
   return (
     <div className={`shared-answer-app ${theme}`}>
-      <button className="shared-theme-toggle" onClick={toggleTheme}>
-        {theme === 'light' ? '🌙' : '☀️'}
-      </button>
+      {actionButtons}
+
+      {/* Scroll progress rail (right edge) */}
       <div className="scroll-rail">
-        <div
-          className="scroll-rail-thumb"
-          style={{ height: `${Math.max(3, scrollProgress * 100)}%` }}
-        />
+        <div className="scroll-rail-thumb" ref={railThumbRef} />
       </div>
+
+      {/* TOC minimap (right edge, hover to expand) */}
+      <TOCMinimap items={tocItems} />
 
       <div className="shared-container">
         <div className="shared-header">
@@ -151,7 +201,7 @@ export default function SharedAnswer({ token }) {
           <div className="shared-question">{data.question}</div>
         )}
 
-        <div className="shared-answer-content">
+        <div className="shared-answer-content" ref={contentRef}>
           <MarkdownRenderer>{responseMarkdown}</MarkdownRenderer>
         </div>
 

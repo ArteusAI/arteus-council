@@ -107,6 +107,38 @@ body {
   overflow: hidden;
 }
 
+/* Minimal thin scrollbars (window + all inner containers) */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-primary) transparent;
+}
+
+body {
+  overflow-x: clip;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-primary);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* Global markdown styling */
 .markdown-content {
   padding: 12px;
@@ -243,17 +275,14 @@ body {
   border-collapse: collapse;
 }
 
-/* Mermaid diagram containers */
+/* Mermaid diagram containers — minimal, no framing */
 .mermaid-container {
   position: relative;
   display: flex;
   justify-content: center;
   margin: 16px 0;
-  padding: 12px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-primary);
-  border-radius: 8px;
-  overflow-x: auto;
+  padding: 8px 0;
+  overflow-x: clip;
 }
 
 .mermaid-container svg {
@@ -296,8 +325,12 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.85);
+  background: rgba(255, 255, 255, 0.85);
   animation: mermaid-fade-in 0.2s ease;
+}
+
+[data-theme='dark'] .mermaid-fullscreen-overlay {
+  background: rgba(0, 0, 0, 0.85);
 }
 
 @keyframes mermaid-fade-in {
@@ -309,15 +342,19 @@ body {
   max-width: 94vw;
   max-height: 92vh;
   overflow: auto;
-  background: #fff;
-  border-radius: 8px;
-  padding: 24px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  padding: 16px;
 }
 
 .mermaid-fullscreen-content svg {
-  max-width: 90vw;
-  max-height: 86vh;
+  display: block;
+  max-width: calc(94vw - 32px);
+  max-height: calc(92vh - 32px);
   width: auto;
   height: auto;
 }
@@ -330,8 +367,8 @@ body {
   height: 36px;
   border: none;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
+  background: var(--bg-hover);
+  color: var(--text-primary);
   font-size: 24px;
   cursor: pointer;
   display: flex;
@@ -341,7 +378,7 @@ body {
 }
 
 .mermaid-fullscreen-close:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: var(--bg-active);
 }
 
 .mermaid-error {

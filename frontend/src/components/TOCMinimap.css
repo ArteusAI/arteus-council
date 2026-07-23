@@ -1,0 +1,152 @@
+/* TOC Minimap — port of @syedmoin/toc-minimap (shadcn) to plain CSS.
+   Tailwind classes from the original are translated 1:1. */
+
+.toc-minimap {
+  position: fixed;
+  top: 96px;
+  right: 16px;
+  z-index: 85;
+  /* original: ml-auto w-18 */
+  width: 72px;
+}
+
+/* --- Minimap bars --- */
+/* original: flex max-h-[50dvh] flex-col gap-3 overflow-hidden py-3 pl-6
+   opacity-100 transition-opacity duration-200 data-popup-open:opacity-0 */
+.toc-minimap-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 50dvh;
+  overflow: hidden;
+  padding: 12px 0 12px 24px;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+.toc-minimap:hover .toc-minimap-bars {
+  opacity: 0;
+}
+
+/* original: h-0.5 w-6 shrink-0 rounded-xs bg-ring/50
+   transition-[background-color] duration-200
+   data-[depth=3]:ml-2 data-[depth=3]:w-4
+   data-[depth=4]:ml-4 data-[depth=4]:w-2
+   data-active:bg-foreground */
+.toc-minimap-bar {
+  height: 2px;
+  width: 24px;
+  flex-shrink: 0;
+  border-radius: 2px;
+  background: var(--border-primary, #d4d4d4);
+  transition: background-color 0.2s ease;
+}
+
+.toc-minimap-bar[data-depth='3'] {
+  margin-left: 8px;
+  width: 16px;
+}
+
+.toc-minimap-bar[data-depth='4'] {
+  margin-left: 16px;
+  width: 8px;
+}
+
+.toc-minimap-bar[data-depth='5'],
+.toc-minimap-bar[data-depth='6'] {
+  margin-left: 20px;
+  width: 6px;
+}
+
+.toc-minimap-bar[data-active] {
+  background: var(--text-primary, #171717);
+}
+
+/* --- Expanded panel --- */
+/* original HoverCardContent: w-56 overflow-hidden p-0, side=left,
+   slide-in-from-right-3 / zoom animations, max-h-[50dvh] overflow-y-auto */
+.toc-minimap-panel {
+  position: absolute;
+  top: 0;
+  right: 12px;
+  width: 224px;
+  max-height: 50dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  background: var(--bg-primary, #fff);
+  border: 1px solid var(--border-primary, #e5e5e5);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  opacity: 0;
+  transform: translateX(12px);
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.toc-minimap:hover .toc-minimap-panel,
+.toc-minimap:focus-within .toc-minimap-panel {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+/* original: flex size-full flex-col px-6 py-4 text-sm */
+.toc-minimap-panel ul {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin: 0;
+  padding: 16px 24px;
+  list-style: none;
+  font-size: 14px;
+}
+
+/* original: flex py-1 */
+.toc-minimap-panel li {
+  display: flex;
+  padding: 4px 0;
+}
+
+/* original: line-clamp-2 w-full transition-[color] duration-200
+   text-muted-foreground hover:text-foreground data-active:text-foreground
+   data-[depth=3]:pl-4 data-[depth=4]:pl-8 */
+.toc-minimap-panel a {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  width: 100%;
+  color: var(--text-tertiary, #737373);
+  text-decoration: none;
+  line-height: 1.45;
+  transition: color 0.2s ease;
+}
+
+.toc-minimap-panel a:hover {
+  color: var(--text-primary, #171717);
+}
+
+.toc-minimap-panel a[data-active] {
+  color: var(--text-primary, #171717);
+}
+
+.toc-minimap-panel a[data-depth='3'] {
+  padding-left: 16px;
+}
+
+.toc-minimap-panel a[data-depth='4'] {
+  padding-left: 32px;
+}
+
+.toc-minimap-panel a[data-depth='5'],
+.toc-minimap-panel a[data-depth='6'] {
+  padding-left: 40px;
+}
+
+/* Hide on narrow screens — the bars would overlap the text */
+@media (max-width: 1023px) {
+  .toc-minimap {
+    display: none;
+  }
+}
