@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../api';
 import { translations } from '../i18n';
 import { getModelDisplayName } from '../utils/modelDisplay';
 import { formatResponseMarkdown } from '../utils/responseMarkdown';
 import MarkdownRenderer from './MarkdownRenderer';
 import TOCMinimap from './TOCMinimap';
+import LoginInterface from './LoginInterface';
 import './SharedAnswer.css';
 
 function detectLanguage() {
@@ -24,6 +25,7 @@ function t(lang, key) {
 export default function SharedAnswer({ token }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [needsLogin, setNeedsLogin] = useState(false);
   const [tocItems, setTocItems] = useState([]);
   const contentRef = useRef(null);
   const railThumbRef = useRef(null);
@@ -36,6 +38,10 @@ export default function SharedAnswer({ token }) {
   });
 
   const lang = detectLanguage();
+  const translate = useCallback((key) => {
+    if (key === 'loginSubtitle') return t(lang, 'shareLoginSubtitle');
+    return t(lang, key);
+  }, [lang]);
 
   // Scroll progress bar (right edge) — updated via ref to avoid
   // re-rendering the whole page (and remounting markdown) on every scroll
@@ -85,25 +91,50 @@ export default function SharedAnswer({ token }) {
     }
   }, [theme]);
 
+  const loadShared = useCallback(async () => {
+    const result = await api.getSharedAnswer(token);
+    setData(result);
+    setError(null);
+    setNeedsLogin(false);
+    return result;
+  }, [token]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const result = await api.getSharedAnswer(token);
-        if (!cancelled) {
-          setData(result);
-          setError(null);
-        }
+        await loadShared();
       } catch (err) {
         if (!cancelled) {
-          setError(err.message || 'Failed to load');
+          if (err.status === 401) {
+            setNeedsLogin(true);
+            setError(null);
+          } else {
+            setNeedsLogin(false);
+            setError(err.message || 'Failed to load');
+          }
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, loadShared]);
+
+  const handleLogin = async (email, password) => {
+    await api.login(email, password);
+    try {
+      await loadShared();
+    } catch (err) {
+      if (err.status === 401) {
+        setNeedsLogin(true);
+        setError(null);
+        throw new Error(t(lang, 'shareLoginSubtitle'));
+      }
+      setNeedsLogin(false);
+      setError(err.message || 'Failed to load');
+    }
+  };
 
   // Extract TOC items from rendered headings (re-extract on theme change,
   // since re-rendered markdown replaces heading DOM elements)
@@ -130,8 +161,8 @@ export default function SharedAnswer({ token }) {
 
   const baseUrl = import.meta.env.BASE_URL || '/';
   const logoSrc = theme === 'dark'
-    ? `${baseUrl}council_logo_black.png`
-    : `${baseUrl}council_logo_white.png`;
+    ? `${baseUrl}council_logo_white.png`
+    : `${baseUrl}council_logo_black.png`;
 
   const actionButtons = (
     <div className="shared-actions">
@@ -152,6 +183,15 @@ export default function SharedAnswer({ token }) {
       </button>
     </div>
   );
+
+  if (needsLogin) {
+    return (
+      <div className={`shared-answer-app ${theme}`}>
+        {actionButtons}
+        <LoginInterface onLogin={handleLogin} t={translate} theme={theme} />
+      </div>
+    );
+  }
 
   if (error) {
     return (

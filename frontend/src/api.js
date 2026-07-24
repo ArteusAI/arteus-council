@@ -551,7 +551,11 @@ export const api = {
       }
     );
     if (!response.ok) {
-      throw new Error(await extractErrorDetail(response, 'Failed to load shared answer'));
+      const err = new Error(
+        await extractErrorDetail(response, 'Failed to load shared answer')
+      );
+      err.status = response.status;
+      throw err;
     }
     return response.json();
   },
