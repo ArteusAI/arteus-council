@@ -331,6 +331,15 @@
   cursor: not-allowed;
 }
 
+.messages-panel {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .messages-container {
   flex: 1;
   overflow-y: auto;

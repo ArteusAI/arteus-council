@@ -40,6 +40,7 @@ from .config import (
     BACKEND_ROOT_PATH,
     PERSONALIZATION_TEMPLATES,
     COUNCIL_IDENTITY_TEMPLATES,
+    MAX_USER_QUESTIONS_PER_CONVERSATION,
 )
 from .attachments import (
     build_agora_attachment_block,
@@ -50,6 +51,7 @@ from .attachments import (
     validate_attachments,
 )
 from .council import (
+    apply_conversation_history,
     generate_conversation_title,
     is_agora_model,
     run_full_council,
@@ -439,6 +441,16 @@ async def send_message(conversation_id: str, request: SendMessageRequest, user: 
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    if storage.count_user_messages(conversation) >= MAX_USER_QUESTIONS_PER_CONVERSATION:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"This conversation is limited to "
+                f"{MAX_USER_QUESTIONS_PER_CONVERSATION} questions. "
+                "Start a new conversation to continue."
+            ),
+        )
+
     # Check if this is the first message
     is_first_message = len(conversation["messages"]) == 0
 
@@ -465,6 +477,10 @@ async def send_message(conversation_id: str, request: SendMessageRequest, user: 
     if attachments and any(is_agora_model(model) for model in models_for_query):
         attachment_token, attachment_tmp_dir, file_urls = create_attachment_files(attachments)
         agora_query = enriched_content + build_agora_attachment_block(file_urls)
+
+    # Prior completed turns (user + stage3) — snapshot before this user message.
+    standard_query = apply_conversation_history(standard_query, conversation)
+    agora_query = apply_conversation_history(agora_query, conversation)
 
     try:
         # If this is the first message, generate a title

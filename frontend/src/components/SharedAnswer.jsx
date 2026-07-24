@@ -161,8 +161,8 @@ export default function SharedAnswer({ token }) {
 
   const baseUrl = import.meta.env.BASE_URL || '/';
   const logoSrc = theme === 'dark'
-    ? `${baseUrl}council_logo_white.png`
-    : `${baseUrl}council_logo_black.png`;
+    ? `${baseUrl}council_logo_black.png`
+    : `${baseUrl}council_logo_white.png`;
 
   const actionButtons = (
     <div className="shared-actions">

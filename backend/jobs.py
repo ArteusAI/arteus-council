@@ -17,8 +17,13 @@ from .attachments import (
     create_attachment_files,
     normalize_attachments,
 )
-from .config import COUNCIL_MODELS, FIRECRAWL_API_KEY
+from .config import (
+    COUNCIL_MODELS,
+    FIRECRAWL_API_KEY,
+    MAX_USER_QUESTIONS_PER_CONVERSATION,
+)
 from .council import (
+    apply_conversation_history,
     build_label_to_model,
     build_cost_stats,
     build_round_metadata,
@@ -207,6 +212,8 @@ class CouncilJob:
         self.personal_prompt = personal_prompt
         self.base_system_prompt = base_system_prompt
         self.is_first_message = is_first_message
+        # Snapshot before the new user message is appended to storage.
+        self.conversation = conversation
         self.status = "queued"
         self.stage = "queued"
         self.error: str | None = None
@@ -651,6 +658,14 @@ class CouncilJob:
                 attachments,
                 models_to_use or COUNCIL_MODELS,
             )
+            enriched_content = apply_conversation_history(
+                enriched_content,
+                self.conversation,
+            )
+            agora_enriched_content = apply_conversation_history(
+                agora_enriched_content,
+                self.conversation,
+            )
 
             self._set_stage("stage1")
             completed_stage1_models: List[str] = []
@@ -1008,10 +1023,24 @@ class CouncilJobManager:
                 if existing:
                     return existing
                 raise JobNotFoundError("No active job for this conversation")
-            if not request_payload.get("continue_last_assistant_round") and not request_payload.get("retry_stage3") and not (
+            is_continuation = bool(
+                request_payload.get("continue_last_assistant_round")
+                or request_payload.get("retry_stage3")
+            )
+            if not is_continuation and not (
                 request_payload.get("content") or ""
             ).strip() and not (request_payload.get("attachments") or []):
                 raise JobConflictError("Message content is required")
+            if (
+                not is_continuation
+                and storage.count_user_messages(conversation)
+                >= MAX_USER_QUESTIONS_PER_CONVERSATION
+            ):
+                raise JobConflictError(
+                    f"This conversation is limited to "
+                    f"{MAX_USER_QUESTIONS_PER_CONVERSATION} questions. "
+                    "Start a new conversation to continue."
+                )
 
             job = CouncilJob(
                 user_id=user_id,

@@ -138,6 +138,9 @@ CORS_ALLOW_ORIGINS = _parse_csv_env(os.getenv("CORS_ALLOW_ORIGINS")) or DEFAULT_
 # Data directory for conversation storage
 DATA_DIR = "data/conversations"
 
+# Soft cap on follow-up turns per conversation (user questions).
+MAX_USER_QUESTIONS_PER_CONVERSATION = 3
+
 # Optional path prefix when serving behind a subpath (e.g. /council)
 BACKEND_ROOT_PATH = _normalize_root_path(
     os.getenv("BACKEND_ROOT_PATH")

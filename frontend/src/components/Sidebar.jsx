@@ -67,8 +67,8 @@ export default function Sidebar({
 
   const baseUrl = import.meta.env.BASE_URL || '/';
   const logoSrc = theme === 'dark'
-    ? `${baseUrl}council_logo_white.png`
-    : `${baseUrl}council_logo_black.png`;
+    ? `${baseUrl}council_logo_black.png`
+    : `${baseUrl}council_logo_white.png`;
 
   return (
     <div className={`sidebar ${isOpen ? 'open' : ''}`}>

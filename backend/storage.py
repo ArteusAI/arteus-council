@@ -125,6 +125,12 @@ def list_conversations(session_id: str) -> List[Dict[str, Any]]:
     return conversations
 
 
+def count_user_messages(conversation: Dict[str, Any] | None) -> int:
+    """Return how many user turns are already stored in a conversation."""
+    messages = (conversation or {}).get("messages") or []
+    return sum(1 for message in messages if message.get("role") == "user")
+
+
 def add_user_message(
     session_id: str,
     conversation_id: str,

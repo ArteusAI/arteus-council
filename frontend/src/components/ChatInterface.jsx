@@ -210,6 +210,8 @@ function BrainGlyph({ count }) {
   );
 }
 
+const MAX_USER_QUESTIONS = 3;
+
 export default function ChatInterface({
   conversation,
   onSendMessage,
@@ -237,6 +239,10 @@ export default function ChatInterface({
   const [attachments, setAttachments] = useState([]);
   const [attachmentError, setAttachmentError] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
+  const userQuestionCount = (conversation?.messages || []).filter(
+    (msg) => msg.role === 'user'
+  ).length;
+  const canAskMore = userQuestionCount < MAX_USER_QUESTIONS;
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showBasePromptSettings, setShowBasePromptSettings] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState(null);
@@ -321,7 +327,11 @@ export default function ChatInterface({
   }, [isMessagesAtBottom]);
 
   const scrollToBottom = useCallback((behavior = 'smooth') => {
-    messagesEndRef.current?.scrollIntoView({ behavior });
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    // Prefer container.scrollTo over scrollIntoView: the latter defaults to
+    // block:start and can yank the end-marker upward (feels like reverse scroll).
+    container.scrollTo({ top: container.scrollHeight, behavior });
     wasAtBottomRef.current = true;
   }, []);
 
@@ -463,11 +473,14 @@ export default function ChatInterface({
       selectedModels.length > 0 &&
       modelsLoaded
     ) {
+      wasAtBottomRef.current = true;
       onSendMessage(input, attachments);
       // Draft is removed by the useEffect that watches input when it's set to empty
       setInput('');
       setAttachments([]);
       setAttachmentError('');
+      // Next paint has the new user bubble — pin to bottom.
+      requestAnimationFrame(() => scrollToBottom('auto'));
     }
   };
 
@@ -745,6 +758,7 @@ export default function ChatInterface({
         ></div>
       </div>
 
+      <div className="messages-panel">
       <div
         ref={messagesContainerRef}
         className="messages-container"
@@ -1136,9 +1150,10 @@ export default function ChatInterface({
           </button>
         </div>
       )}
+      </div>
 
-      {conversation.messages.length === 0 && (
-        <form
+      {canAskMore && (
+      <form
           className={`input-form ${isDragOver ? 'drag-over' : ''}`}
           onSubmit={handleSubmit}
           onDrop={handleDrop}

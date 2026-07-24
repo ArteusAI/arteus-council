@@ -57,6 +57,96 @@ def build_personalization_section(personal_prompt: str | None) -> str:
     )
 
 
+def extract_stage3_answer(stage3: Any) -> str:
+    """Return the chairman final answer text from a stored stage3 payload."""
+    if not isinstance(stage3, dict):
+        return ""
+    for key in ("response", "content", "answer", "text"):
+        value = stage3.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
+
+
+def extract_conversation_turns(
+    conversation: Dict[str, Any] | None,
+) -> List[Dict[str, str]]:
+    """Extract completed user/council-answer pairs from a conversation.
+
+    Incomplete assistant messages (no stage3 answer) are skipped. When an
+    assistant message is incomplete, its paired user message is also skipped
+    so follow-up context only includes finished turns.
+    """
+    messages = (conversation or {}).get("messages") or []
+    turns: List[Dict[str, str]] = []
+    pending_user: str | None = None
+
+    for message in messages:
+        role = message.get("role")
+        if role == "user":
+            content = str(message.get("content") or "").strip()
+            pending_user = content if content else None
+            continue
+
+        if role != "assistant":
+            continue
+
+        answer = extract_stage3_answer(message.get("stage3"))
+        if pending_user is None or not answer:
+            pending_user = None
+            continue
+
+        turns.append({"question": pending_user, "answer": answer})
+        pending_user = None
+
+    return turns
+
+
+def build_conversation_history_block(turns: List[Dict[str, str]]) -> str:
+    """Format prior turns for inclusion in council prompts."""
+    if not turns:
+        return ""
+
+    sections = ["CONVERSATION SO FAR:"]
+    for index, turn in enumerate(turns, start=1):
+        sections.append(
+            f"### Turn {index}\n"
+            f"User: {turn['question']}\n"
+            f"Council answer: {turn['answer']}"
+        )
+
+    sections.append(
+        "The above is prior conversation context. Answer the CURRENT QUESTION below. "
+        "Treat earlier turns as shared background; do not restart as if the current "
+        "question were standalone unless it clearly is a new topic."
+    )
+    return "\n\n".join(sections)
+
+
+def apply_conversation_history(
+    current_query: str,
+    conversation: Dict[str, Any] | None,
+) -> str:
+    """Prepend prior Q+stage3 history to the current user query when present."""
+    history_block = build_conversation_history_block(
+        extract_conversation_turns(conversation)
+    )
+    if not history_block:
+        return current_query
+
+    current = str(current_query or "").strip()
+    if not current:
+        return history_block
+
+    return (
+        f"{history_block}\n\n"
+        f"CURRENT QUESTION:\n{current}"
+    )
+
+
 def build_stage1_prompt(
     user_query: str,
     language: str | None = None,
