@@ -102,7 +102,7 @@ COUNCIL_MODELS = [
     "openai/gpt-5.6-sol",
     "google/gemini-3.6-flash",
     "anthropic/claude-fable-5",
-    "qwen/qwen3.7-max",
+    "qwen/qwen3.8-max",
     "x-ai/grok-4.5",
     "moonshotai/kimi-k3",
     "deepseek/deepseek-v4-pro",

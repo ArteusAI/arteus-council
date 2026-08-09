@@ -61,6 +61,9 @@ const DARK_VARS = {
 function initializeMermaid(mode) {
   mermaid.initialize({
     startOnLoad: false,
+    // Prevent Mermaid from injecting the "bomb / Syntax error" SVG into <body>
+    // on parse/render failure — we handle errors ourselves with a code fallback.
+    suppressErrorRendering: true,
     theme: 'base',
     themeVariables: mode === 'dark' ? DARK_VARS : LIGHT_VARS,
     flowchart: {
@@ -94,15 +97,32 @@ function useDocumentTheme() {
 
 let renderCounter = 0;
 
-function cleanupMermaidErrors() {
-  document.querySelectorAll('body > div[id^="dmermaid-"]').forEach((el) => {
+/** Remove leftover Mermaid temp/error nodes that may linger on <body>. */
+function cleanupMermaidDom(renderId) {
+  // Temp wrapper is "d" + render id (e.g. dmmd-1); error SVG uses the render id itself.
+  const ids = [];
+  if (renderId) {
+    ids.push(renderId, `d${renderId}`);
+  }
+  for (const id of ids) {
+    document.getElementById(id)?.remove();
+  }
+  document.querySelectorAll('body > div[id^="dmmd-"], body > svg[id^="mmd-"]').forEach((el) => {
     el.remove();
   });
-  document.querySelectorAll('.mermaid-error, [class*="mermaid"][class*="error"]').forEach((el) => {
-    if (el.tagName === 'DIV' && el.parentElement === document.body) {
-      el.remove();
-    }
+  document.querySelectorAll('body > div[id^="dmermaid-"], body > svg[aria-roledescription="error"]').forEach((el) => {
+    el.remove();
   });
+}
+
+/** True when Mermaid returned its built-in error diagram instead of throwing. */
+function isMermaidErrorSvg(svg) {
+  if (!svg) return false;
+  return (
+    svg.includes('Syntax error') ||
+    svg.includes('aria-roledescription="error"') ||
+    /mermaid-error|error-icon/i.test(svg)
+  );
 }
 
 export default function MermaidBlock({ chart }) {
@@ -121,23 +141,27 @@ export default function MermaidBlock({ chart }) {
       try {
         initializeMermaid(mode);
         const { svg: rendered } = await mermaid.render(renderId, chart);
-        if (!cancelled) {
-          setSvg(rendered);
-          setFailed(false);
-          cleanupMermaidErrors();
+        cleanupMermaidDom(renderId);
+        if (cancelled) return;
+        if (isMermaidErrorSvg(rendered)) {
+          setFailed(true);
+          setSvg('');
+          return;
         }
+        setSvg(rendered);
+        setFailed(false);
       } catch {
+        cleanupMermaidDom(renderId);
         if (!cancelled) {
           setFailed(true);
           setSvg('');
-          cleanupMermaidErrors();
         }
       }
     })();
 
     return () => {
       cancelled = true;
-      cleanupMermaidErrors();
+      cleanupMermaidDom(renderId);
     };
   }, [chart, mode]);
 
