@@ -29,14 +29,17 @@ from .council import (
     build_round_metadata,
     build_round_payload,
     calculate_second_round_status,
+    compute_next_question_models,
     generate_conversation_title,
     get_peer_ranking_models,
     is_agora_model,
+    resolve_council_models,
     select_second_round_finalists,
     stage1_collect_responses,
     stage1_collect_revised_responses,
     stage2_collect_rankings,
     stage3_synthesize_final,
+    with_conversation_cost,
 )
 from .firecrawl import extract_urls, process_message_links
 
@@ -486,11 +489,26 @@ class CouncilJob:
 
     async def _run_workflow(self) -> None:
         request = self.request_payload
-        models_to_use = request.get("models") or None
         chairman_to_use = request.get("chairman_model") or None
         language = request.get("language")
         should_continue = bool(request.get("continue_last_assistant_round"))
         should_retry_stage3 = bool(request.get("retry_stage3"))
+        models_to_use = resolve_council_models(
+            request.get("models") or None,
+            self.conversation,
+            is_new_user_turn=not should_continue and not should_retry_stage3,
+        )
+        if (
+            not should_continue
+            and not should_retry_stage3
+            and models_to_use
+            and models_to_use != (request.get("models") or None)
+        ):
+            logger.info(
+                "[%s] Follow-up locked to finalists: %s",
+                self.conversation_id[:8],
+                models_to_use,
+            )
         should_run_next_round = bool(request.get("enable_second_round")) or should_continue
         title_task: asyncio.Task | None = None
 
@@ -548,12 +566,21 @@ class CouncilJob:
                 "second_round_status": "completed" if round2_payload else "skipped",
                 "round2_finalists": finalists,
                 "round2": round2_metadata,
-                "cost_stats": build_cost_stats(
+                "next_question_models": compute_next_question_models(
                     stage1_results,
-                    stage2_results,
-                    stage3_result,
-                    round2_stage1_results,
-                    round2_stage2_results,
+                    round1_metadata["aggregate_rankings"],
+                    round2_finalists=finalists,
+                ),
+                "cost_stats": with_conversation_cost(
+                    build_cost_stats(
+                        stage1_results,
+                        stage2_results,
+                        stage3_result,
+                        round2_stage1_results,
+                        round2_stage2_results,
+                    ),
+                    conversation,
+                    replacing_last_assistant=True,
                 ),
             }
             self.assistant_message["stage3"] = stage3_result
@@ -935,12 +962,21 @@ class CouncilJob:
             "second_round_status": second_round_status,
             "round2_finalists": finalists,
             "round2": round2_metadata,
-            "cost_stats": build_cost_stats(
+            "next_question_models": compute_next_question_models(
                 stage1_results,
-                stage2_results,
-                stage3_result,
-                round2_stage1_results,
-                round2_stage2_results,
+                round1_metadata["aggregate_rankings"],
+                round2_finalists=finalists,
+            ),
+            "cost_stats": with_conversation_cost(
+                build_cost_stats(
+                    stage1_results,
+                    stage2_results,
+                    stage3_result,
+                    round2_stage1_results,
+                    round2_stage2_results,
+                ),
+                self.conversation,
+                replacing_last_assistant=should_continue,
             ),
         }
         self.assistant_message["stage3"] = stage3_result

@@ -47,16 +47,19 @@ from backend import storage
 from backend.agora_eval_files import resolve_eval_file
 from backend.config import PEER_EVALUATION_TIMEOUT_SECONDS
 from backend.council import (
+    get_next_question_models,
     get_peer_ranking_models,
     is_valid_agora_evaluation,
     parse_agora_scores_from_text,
     parse_ranking_from_text,
     query_model_messages_parallel,
+    resolve_council_models,
     run_full_council,
     select_second_round_finalists,
     stage1_collect_responses,
     stage2_collect_rankings,
     stage3_synthesize_final,
+    with_conversation_cost,
 )
 
 
@@ -487,6 +490,7 @@ class CouncilSecondRoundTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stage3_result["response"], "final synthesis")
         self.assertEqual(metadata["second_round_status"], "completed")
         self.assertEqual(metadata["round2_finalists"], finalists)
+        self.assertEqual(metadata["next_question_models"], finalists)
         self.assertEqual(len(rounds), 2)
         self.assertEqual(rounds[1]["round"], 2)
         self.assertEqual([item["model"] for item in rounds[1]["stage1"]], finalists)
@@ -519,6 +523,7 @@ class CouncilSecondRoundTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stage3_result["response"], "single round synthesis")
         self.assertFalse(metadata["second_round_enabled"])
         self.assertEqual(metadata["second_round_status"], "skipped")
+        self.assertEqual(metadata["next_question_models"], models)
         self.assertEqual(len(rounds), 1)
 
     @patch("backend.council.query_model", new_callable=AsyncMock)
@@ -539,6 +544,119 @@ class CouncilSecondRoundTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["model"], "chair-model")
         self.assertEqual(result["response"], "final synthesis after retry")
         self.assertEqual(mock_query_model.await_count, 3)
+
+
+class FollowupFinalistsAndCostTests(unittest.TestCase):
+    def test_get_next_question_models_prefers_round2_finalists(self):
+        assistant = {
+            "role": "assistant",
+            "stage1": [{"model": f"model-{i}", "response": "x"} for i in range(1, 7)],
+            "metadata": {
+                "round2_finalists": ["model-1", "model-2", "model-3"],
+                "aggregate_rankings": [
+                    {"model": f"model-{i}", "average_rank": float(i), "rankings_count": 6}
+                    for i in range(1, 7)
+                ],
+            },
+        }
+        self.assertEqual(
+            get_next_question_models(assistant),
+            ["model-1", "model-2", "model-3"],
+        )
+
+    def test_get_next_question_models_falls_back_to_rankings(self):
+        stage1 = [{"model": f"model-{i}", "response": "x"} for i in range(1, 7)]
+        rankings = [
+            {"model": f"model-{i}", "average_rank": float(i), "rankings_count": 6}
+            for i in range(1, 7)
+        ]
+        assistant = {
+            "role": "assistant",
+            "stage1": stage1,
+            "metadata": {"aggregate_rankings": rankings, "round2_finalists": []},
+        }
+        self.assertEqual(
+            get_next_question_models(assistant),
+            ["model-1", "model-2", "model-3"],
+        )
+
+    def test_resolve_council_models_locks_followup_and_ignores_request(self):
+        conversation = {
+            "messages": [
+                {"role": "user", "content": "q1"},
+                {
+                    "role": "assistant",
+                    "stage1": [{"model": "model-a", "response": "a"}],
+                    "metadata": {"next_question_models": ["model-a", "model-b"]},
+                },
+            ]
+        }
+        self.assertEqual(
+            resolve_council_models(
+                ["model-a", "model-b", "model-c", "model-d"],
+                conversation,
+                is_new_user_turn=True,
+            ),
+            ["model-a", "model-b"],
+        )
+        self.assertEqual(
+            resolve_council_models(
+                ["model-a", "model-b", "model-c"],
+                conversation,
+                is_new_user_turn=False,
+            ),
+            ["model-a", "model-b", "model-c"],
+        )
+
+    def test_resolve_council_models_keeps_request_on_first_turn(self):
+        requested = ["model-a", "model-b"]
+        self.assertEqual(
+            resolve_council_models(requested, {"messages": []}, is_new_user_turn=True),
+            requested,
+        )
+
+    def test_with_conversation_cost_sums_prior_turns(self):
+        conversation = {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "metadata": {"cost_stats": {"total_cost": 1.5, "total_tokens": 100}},
+                },
+                {
+                    "role": "assistant",
+                    "metadata": {"cost_stats": {"total_cost": 2.25, "total_tokens": 50}},
+                },
+            ]
+        }
+        stats = with_conversation_cost(
+            {"total_cost": 0.5, "total_tokens": 20, "breakdown": []},
+            conversation,
+            replacing_last_assistant=False,
+        )
+        self.assertEqual(stats["total_cost"], 0.5)
+        self.assertEqual(stats["conversation_cost"], 4.25)
+        self.assertEqual(stats["conversation_tokens"], 170)
+
+    def test_with_conversation_cost_replaces_last_assistant(self):
+        conversation = {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "metadata": {"cost_stats": {"total_cost": 1.0, "total_tokens": 10}},
+                },
+                {
+                    "role": "assistant",
+                    "metadata": {"cost_stats": {"total_cost": 9.0, "total_tokens": 90}},
+                },
+            ]
+        }
+        stats = with_conversation_cost(
+            {"total_cost": 2.0, "total_tokens": 30},
+            conversation,
+            replacing_last_assistant=True,
+        )
+        self.assertEqual(stats["conversation_cost"], 3.0)
+        self.assertEqual(stats["conversation_tokens"], 40)
 
 
 class StorageAssistantMessageTests(unittest.TestCase):

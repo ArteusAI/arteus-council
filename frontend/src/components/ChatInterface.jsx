@@ -9,6 +9,7 @@ import MarkdownRenderer from './MarkdownRenderer';
 import { exportCouncilToPdf } from '../utils/exportPdf';
 import { copyCouncilAsMarkdown } from '../utils/exportMarkdown';
 import { getModelDisplayName } from '../utils/modelDisplay';
+import { withConversationCostTotals } from '../utils/followupModels';
 import './ChatInterface.css';
 
 pdfjsLib.GlobalWorkerOptions.workerPort = new PdfWorker();
@@ -221,6 +222,7 @@ export default function ChatInterface({
   availableModels,
   selectedModels,
   onToggleModel,
+  pickerLocked = false,
   chairmanModel,
   onSelectChairman,
   enableSecondRound,
@@ -246,6 +248,7 @@ export default function ChatInterface({
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showBasePromptSettings, setShowBasePromptSettings] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState(null);
+  const [copiedQuestionIndex, setCopiedQuestionIndex] = useState(null);
   const messagesContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
@@ -309,6 +312,17 @@ export default function ChatInterface({
       await copyCouncilAsMarkdown(userQuestion, msg, t);
       setCopiedIndex(index);
       setTimeout(() => setCopiedIndex(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  const handleCopyQuestion = async (content, index) => {
+    if (!content) return;
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedQuestionIndex(index);
+      setTimeout(() => setCopiedQuestionIndex(null), 2000);
     } catch (err) {
       console.error('Failed to copy:', err);
     }
@@ -651,16 +665,17 @@ export default function ChatInterface({
             )}
             
             <div className="model-pill-grid">
-              {availableModels.map((model) => {
+              {(pickerLocked ? selectedModels : availableModels).map((model) => {
                 const selected = selectedModels.includes(model);
                 return (
                   <label
                     key={model}
-                    className={`model-pill ${selected ? 'selected' : ''}`}
+                    className={`model-pill ${selected ? 'selected' : ''} ${pickerLocked ? 'locked' : ''}`}
                   >
                     <input
                       type="checkbox"
                       checked={selected}
+                      disabled={pickerLocked}
                       onChange={() => onToggleModel(model)}
                     />
                     <span className="model-pill-check" aria-hidden="true">
@@ -670,11 +685,14 @@ export default function ChatInterface({
                   </label>
                 );
               })}
-              {availableModels.length === 0 && (
+              {(pickerLocked ? selectedModels : availableModels).length === 0 && (
                 <div className="model-empty">{t('noModelsConfigured')}</div>
               )}
             </div>
 
+            {pickerLocked && (
+              <div className="model-warning followup-lock-hint">{t('followupFinalistsLocked')}</div>
+            )}
             {selectedModels.length === 0 && (
               <div className="model-warning">{t('selectAtLeastOne')}</div>
             )}
@@ -777,7 +795,34 @@ export default function ChatInterface({
                   ref={index === latestQuestionIndex ? latestQuestionRef : null}
                   className="user-message chat-section-anchor"
                 >
-                  <div className="message-label">{t('youLabel')}</div>
+                  <div className="message-label">
+                    <span>{t('youLabel')}</span>
+                    {msg.content && (
+                      <button
+                        type="button"
+                        className={`copy-question-btn ${copiedQuestionIndex === index ? 'copied' : ''}`}
+                        onClick={() => handleCopyQuestion(msg.content, index)}
+                        title={copiedQuestionIndex === index ? t('copiedToClipboard') : t('copyQuestion')}
+                      >
+                        {copiedQuestionIndex === index ? (
+                          <>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                            <span>{t('copiedToClipboard')}</span>
+                          </>
+                        ) : (
+                          <>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                            <span>{t('copyQuestion')}</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
                   <div className="message-content">
                     {Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
                       <div className="user-message-attachments">
@@ -1025,7 +1070,15 @@ export default function ChatInterface({
                             : null
                         }
                         isRetrying={msg.loading?.stage3}
-                        costStats={msg.metadata?.cost_stats}
+                        costStats={
+                          index === latestCompletedAssistantIndex
+                            ? withConversationCostTotals(
+                                msg.metadata?.cost_stats,
+                                conversation.messages
+                              )
+                            : msg.metadata?.cost_stats
+                        }
+                        showConversationTotal={index === latestCompletedAssistantIndex}
                         conversationId={conversation?.id}
                         messageIndex={index}
                       />

@@ -282,10 +282,19 @@
   font-size: 14px;
 }
 
+.model-pill.locked {
+  cursor: default;
+  opacity: 0.85;
+}
+
 .model-warning {
   color: var(--text-warning);
   font-size: 14px;
   margin-bottom: 10px;
+}
+
+.followup-lock-hint {
+  color: var(--text-secondary);
 }
 
 .chairman-row {
@@ -504,6 +513,43 @@
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 8px;
+}
+
+.user-message .message-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.copy-question-btn {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  opacity: 0.6;
+}
+
+.copy-question-btn:hover {
+  opacity: 1;
+  background: var(--bg-primary);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.copy-question-btn.copied {
+  opacity: 1;
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
 }
 
 .message-actions {

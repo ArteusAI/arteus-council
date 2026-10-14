@@ -158,6 +158,24 @@
   color: var(--text-success);
 }
 
+.cost-stats-chat-label {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 9px;
+  opacity: 0.7;
+}
+
+.cost-stats-breakdown tfoot td {
+  padding-top: 6px;
+  border-top: 1px solid var(--border-primary);
+  font-weight: 600;
+}
+
+.cost-stats-breakdown tfoot tr.cost-stats-chat-total td {
+  font-weight: 700;
+  color: var(--text-success);
+}
+
 .cost-stats-breakdown {
   position: absolute;
   top: 100%;

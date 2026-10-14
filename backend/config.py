@@ -99,27 +99,28 @@ else:
 
 # Council members - list of provider model identifiers
 COUNCIL_MODELS = [
-    "openai/gpt-5.6-sol",
-    "google/gemini-3.6-flash",
-    "anthropic/claude-fable-5",
+    "openai/gpt-6.1-sol",
+    "google/gemini-4-argon",
+    "anthropic/claude-opus-5.5",
     "qwen/qwen3.8-max",
-    "x-ai/grok-4.5",
+    "~x-ai/grok-latest",
     "moonshotai/kimi-k3",
-    "deepseek/deepseek-v4-pro",
-    "mistralai/mistral-large-2512",
-    "z-ai/glm-5.2",
+    "~deepseek/deepseek-flash-latest",
+    "~z-ai/glm-latest",
     "minimax/minimax-m2.7",
     "yandex/aliceai-llm",
     "thinkingmachines/inkling",
+    "meta/muse-wonder",
+    "mistralai/mistral-large-4-0",
     AGORA_MODEL_ID
 ]
 
 # Chairman model - synthesizes final response
-CHAIRMAN_MODEL = "openai/gpt-5.6-sol"
+CHAIRMAN_MODEL = "openai/gpt-6.1-sol"
 
 # Default preferred models to preselect in the UI
 DEFAULT_PREFERRED_MODELS = [
-    "openai/gpt-5.6-sol",
+    "openai/gpt-6.1-sol",
     "google/gemini-3.6-flash"
 ]
 

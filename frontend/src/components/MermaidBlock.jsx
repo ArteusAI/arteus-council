@@ -115,16 +115,6 @@ function cleanupMermaidDom(renderId) {
   });
 }
 
-/** True when Mermaid returned its built-in error diagram instead of throwing. */
-function isMermaidErrorSvg(svg) {
-  if (!svg) return false;
-  return (
-    svg.includes('Syntax error') ||
-    svg.includes('aria-roledescription="error"') ||
-    /mermaid-error|error-icon/i.test(svg)
-  );
-}
-
 export default function MermaidBlock({ chart }) {
   const containerRef = useRef(null);
   const fullscreenRef = useRef(null);
@@ -143,11 +133,6 @@ export default function MermaidBlock({ chart }) {
         const { svg: rendered } = await mermaid.render(renderId, chart);
         cleanupMermaidDom(renderId);
         if (cancelled) return;
-        if (isMermaidErrorSvg(rendered)) {
-          setFailed(true);
-          setSvg('');
-          return;
-        }
         setSvg(rendered);
         setFailed(false);
       } catch {

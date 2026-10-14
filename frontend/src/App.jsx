@@ -6,6 +6,7 @@ import SharedAnswer from './components/SharedAnswer';
 import { api } from './api';
 import { translate } from './i18n';
 import { isAgoraModel } from './utils/modelDisplay';
+import { getFollowupLockedModels } from './utils/followupModels';
 import './App.css';
 
 const normalizeLang = (code) => {
@@ -568,7 +569,10 @@ function App() {
     }
   };
 
+  const followupLockedModels = getFollowupLockedModels(currentConversation);
+
   const toggleModelSelection = (model) => {
+    if (followupLockedModels) return;
     setSelectedModels((prev) =>
       prev.includes(model)
         ? prev.filter((m) => m !== model)
@@ -830,7 +834,8 @@ function App() {
     const options = Array.isArray(attachmentsOrOptions) ? maybeOptions : attachmentsOrOptions;
     const { continueLastAssistantRound = false } = options;
     if (!currentConversationId) return;
-    if (!selectedModels || selectedModels.length === 0) return;
+    const modelsToSend = followupLockedModels || selectedModels;
+    if (!modelsToSend || modelsToSend.length === 0) return;
     if (!content?.trim() && attachments.length === 0) return;
 
     if (continueLastAssistantRound) {
@@ -957,7 +962,7 @@ function App() {
       await api.sendMessageStream(
         streamConversationId,
         content,
-        selectedModels,
+        modelsToSend,
         chairmanModel,
         language,
         effectiveBasePrompt,
@@ -1385,8 +1390,9 @@ function App() {
         onRetryStage3={handleRetryStage3}
         isLoading={isLoading}
         availableModels={availableModels}
-        selectedModels={selectedModels}
+        selectedModels={followupLockedModels || selectedModels}
         onToggleModel={toggleModelSelection}
+        pickerLocked={Boolean(followupLockedModels)}
         chairmanModel={chairmanModel}
         onSelectChairman={setChairmanModel}
         enableSecondRound={enableSecondRound}

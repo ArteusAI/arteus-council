@@ -558,6 +558,116 @@ def select_second_round_finalists(
     return ranked_models[:finalist_count]
 
 
+def last_completed_assistant_message(
+    conversation: Dict[str, Any] | None,
+) -> Dict[str, Any] | None:
+    """Return the latest assistant message that has ranking or stage3 data."""
+    messages = (conversation or {}).get("messages") or []
+    for message in reversed(messages):
+        if message.get("role") != "assistant":
+            continue
+        metadata = message.get("metadata") or {}
+        if (
+            metadata.get("next_question_models")
+            or metadata.get("round2_finalists")
+            or metadata.get("aggregate_rankings")
+            or message.get("stage1")
+        ):
+            return message
+    return None
+
+
+def compute_next_question_models(
+    stage1_results: List[Dict[str, Any]] | None,
+    aggregate_rankings: List[Dict[str, Any]] | None,
+    round2_finalists: List[str] | None = None,
+) -> List[str]:
+    """Pick models that should answer the next user question."""
+    if round2_finalists:
+        return list(round2_finalists)
+    if stage1_results:
+        return select_second_round_finalists(
+            stage1_results,
+            aggregate_rankings or [],
+        )
+    return []
+
+
+def _retain_known_models(models: List[str]) -> List[str]:
+    """Drop models that left the council config, unless none of them match."""
+    if not models:
+        return []
+    allowed = set(COUNCIL_MODELS)
+    filtered = [model for model in models if model in allowed]
+    return filtered if filtered else list(models)
+
+
+def get_next_question_models(
+    assistant_message: Dict[str, Any] | None,
+) -> List[str] | None:
+    """Read the follow-up model lock from a completed assistant turn."""
+    if not assistant_message:
+        return None
+
+    metadata = assistant_message.get("metadata") or {}
+    stored = metadata.get("next_question_models") or metadata.get("round2_finalists")
+    if stored:
+        filtered = _retain_known_models(list(stored))
+        return filtered or None
+
+    rounds = assistant_message.get("rounds") or []
+    last_round = rounds[-1] if rounds else None
+    stage1_results = (last_round or {}).get("stage1") or assistant_message.get("stage1") or []
+    round_metadata = (last_round or {}).get("metadata") or metadata
+    rankings = round_metadata.get("aggregate_rankings") or metadata.get("aggregate_rankings") or []
+    models = _retain_known_models(compute_next_question_models(stage1_results, rankings))
+    return models or None
+
+
+def resolve_council_models(
+    requested_models: List[str] | None,
+    conversation: Dict[str, Any] | None,
+    *,
+    is_new_user_turn: bool,
+) -> List[str] | None:
+    """Lock follow-up turns to previous finalists; first turn keeps the request."""
+    if not is_new_user_turn:
+        return requested_models
+    locked = get_next_question_models(last_completed_assistant_message(conversation))
+    if locked:
+        return locked
+    return requested_models
+
+
+def with_conversation_cost(
+    cost_stats: Dict[str, Any] | None,
+    conversation: Dict[str, Any] | None,
+    *,
+    replacing_last_assistant: bool = False,
+) -> Dict[str, Any]:
+    """Attach conversation-wide cost totals to a per-turn cost_stats payload."""
+    stats = dict(cost_stats or {})
+    prior_cost = 0.0
+    prior_tokens = 0
+    assistants = [
+        message
+        for message in ((conversation or {}).get("messages") or [])
+        if message.get("role") == "assistant"
+    ]
+    if replacing_last_assistant and assistants:
+        assistants = assistants[:-1]
+    for message in assistants:
+        turn_stats = (message.get("metadata") or {}).get("cost_stats") or {}
+        prior_cost += float(turn_stats.get("total_cost") or 0)
+        prior_tokens += int(turn_stats.get("total_tokens") or 0)
+
+    turn_cost = float(stats.get("total_cost") or 0)
+    turn_tokens = int(stats.get("total_tokens") or 0)
+    stats["conversation_cost"] = round(prior_cost + turn_cost, 6)
+    stats["conversation_tokens"] = prior_tokens + turn_tokens
+    return stats
+
+
 def calculate_second_round_status(
     finalists: List[str],
     revised_results: List[Dict[str, Any]],
@@ -1315,6 +1425,7 @@ async def run_full_council(
             "second_round_status": "failed",
             "round2_finalists": [],
             "round2": None,
+            "next_question_models": [],
         }
         return [], [], {
             "model": "error",
@@ -1416,6 +1527,11 @@ async def run_full_council(
         "second_round_status": second_round_status,
         "round2_finalists": finalists,
         "round2": round2_metadata,
+        "next_question_models": compute_next_question_models(
+            stage1_results,
+            round1_metadata["aggregate_rankings"],
+            round2_finalists=finalists,
+        ),
         "cost_stats": build_cost_stats(
             stage1_results,
             stage2_results,

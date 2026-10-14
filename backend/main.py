@@ -54,7 +54,9 @@ from .council import (
     apply_conversation_history,
     generate_conversation_title,
     is_agora_model,
+    resolve_council_models,
     run_full_council,
+    with_conversation_cost,
 )
 from .firecrawl import process_message_links
 from .jobs import JobConflictError, JobNotFoundError, job_manager
@@ -473,7 +475,12 @@ async def send_message(conversation_id: str, request: SendMessageRequest, user: 
     agora_query = standard_query
     attachment_token = None
     attachment_tmp_dir = None
-    models_for_query = request.models or COUNCIL_MODELS
+    models_for_council = resolve_council_models(
+        request.models,
+        conversation,
+        is_new_user_turn=True,
+    )
+    models_for_query = models_for_council or COUNCIL_MODELS
     if attachments and any(is_agora_model(model) for model in models_for_query):
         attachment_token, attachment_tmp_dir, file_urls = create_attachment_files(attachments)
         agora_query = enriched_content + build_agora_attachment_block(file_urls)
@@ -491,7 +498,7 @@ async def send_message(conversation_id: str, request: SendMessageRequest, user: 
         # Run the 3-stage council process
         stage1_results, stage2_results, stage3_result, metadata, rounds = await run_full_council(
             standard_query,
-            models=request.models,
+            models=models_for_council,
             chairman_model=request.chairman_model,
             language=request.language,
             personal_prompt=personal_prompt,
@@ -499,6 +506,12 @@ async def send_message(conversation_id: str, request: SendMessageRequest, user: 
             enable_second_round=request.enable_second_round,
             agora_user_query=agora_query,
         )
+        if metadata.get("cost_stats") is not None:
+            metadata["cost_stats"] = with_conversation_cost(
+                metadata["cost_stats"],
+                conversation,
+                replacing_last_assistant=False,
+            )
 
         # Add assistant message with all stages
         storage.add_assistant_message(

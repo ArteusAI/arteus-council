@@ -29,11 +29,13 @@ const STAGE_LABELS = {
   round2_stage2: 'R2 Rank',
 };
 
-function CostStatsBadge({ costStats, t }) {
+function CostStatsBadge({ costStats, t, showConversationTotal = false }) {
   const [expanded, setExpanded] = useState(false);
   if (!costStats) return null;
 
-  const { total_cost, total_tokens, breakdown } = costStats;
+  const { total_cost, total_tokens, breakdown, conversation_cost, conversation_tokens } = costStats;
+  const badgeCost = showConversationTotal && conversation_cost != null ? conversation_cost : total_cost;
+  const badgeTokens = showConversationTotal && conversation_tokens != null ? conversation_tokens : total_tokens;
 
   return (
     <div className="cost-stats-badge">
@@ -43,9 +45,12 @@ function CostStatsBadge({ costStats, t }) {
         onClick={() => setExpanded(!expanded)}
         title={t('costStatsBreakdown') || 'Cost breakdown'}
       >
-        <span className="cost-stats-tokens">{formatTokens(total_tokens)} {t('costStatsTokens')}</span>
+        {showConversationTotal && (
+          <span className="cost-stats-chat-label">{t('costStatsChat')}</span>
+        )}
+        <span className="cost-stats-tokens">{formatTokens(badgeTokens)} {t('costStatsTokens')}</span>
         <span className="cost-stats-sep">·</span>
-        <span className="cost-stats-cost">{formatCost(total_cost)}</span>
+        <span className="cost-stats-cost">{formatCost(badgeCost)}</span>
       </button>
       {expanded && breakdown && (
         <div className="cost-stats-breakdown">
@@ -72,6 +77,24 @@ function CostStatsBadge({ costStats, t }) {
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={5}>{t('costStatsThisTurn')}</td>
+                <td>{formatCost(total_cost)}</td>
+              </tr>
+              {showConversationTotal && conversation_cost != null && conversation_cost > (total_cost || 0) && (
+                <tr>
+                  <td colSpan={5}>{t('costStatsPrevious')}</td>
+                  <td>{formatCost(conversation_cost - (total_cost || 0))}</td>
+                </tr>
+              )}
+              {showConversationTotal && conversation_cost != null && (
+                <tr className="cost-stats-chat-total">
+                  <td colSpan={5}>{t('costStatsChat')}</td>
+                  <td>{formatCost(conversation_cost)}</td>
+                </tr>
+              )}
+            </tfoot>
           </table>
         </div>
       )}
@@ -79,7 +102,7 @@ function CostStatsBadge({ costStats, t }) {
   );
 }
 
-export default function Stage3({ finalResponse, t, onRetry, isRetrying, costStats, conversationId, messageIndex }) {
+export default function Stage3({ finalResponse, t, onRetry, isRetrying, costStats, showConversationTotal = false, conversationId, messageIndex }) {
   const [copied, setCopied] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareState, setShareState] = useState('idle'); // idle | creating | done | error
@@ -142,7 +165,7 @@ export default function Stage3({ finalResponse, t, onRetry, isRetrying, costStat
         <div className="chairman-label">
           {t('chairmanLabel')}: <ModelLabel model={finalResponse.model} />
         </div>
-        {costStats && <CostStatsBadge costStats={costStats} t={t} />}
+        {costStats && <CostStatsBadge costStats={costStats} t={t} showConversationTotal={showConversationTotal} />}
         <div className="final-text">
           <MarkdownRenderer>{responseMarkdown}</MarkdownRenderer>
         </div>
