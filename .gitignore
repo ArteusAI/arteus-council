@@ -11,9 +11,14 @@ wheels/
 
 # Keys and secrets
 .env
+.env~
+*.env~
 
 # Data files
 data/
+
+# Scratch/temp files
+tmp/
 
 # Frontend
 frontend/node_modules/

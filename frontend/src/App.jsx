@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import LoginInterface from './components/LoginInterface';
 import SharedAnswer from './components/SharedAnswer';
+import MaintenancePage from './components/MaintenancePage';
 import { api } from './api';
 import { translate } from './i18n';
 import { isAgoraModel } from './utils/modelDisplay';
@@ -19,6 +20,8 @@ const normalizeLang = (code) => {
 
 function App() {
   const [authChecked, setAuthChecked] = useState(false);
+  const [maintenance, setMaintenance] = useState(null);
+  const [maintenanceChecked, setMaintenanceChecked] = useState(false);
   const [user, setUser] = useState(null);
   const [ipBypassed, setIpBypassed] = useState(false);
   const [conversations, setConversations] = useState([]);
@@ -154,8 +157,40 @@ function App() {
 
   const t = useCallback((key) => translate(language, key), [language]);
 
-  // Check authentication on mount
+  const checkMaintenance = useCallback(async () => {
+    try {
+      const data = await api.getMaintenanceStatus();
+      setMaintenance({
+        active: Boolean(data.maintenance),
+        message: data.message || '',
+        retryAfterSeconds: Number(data.retry_after_seconds) || 30,
+      });
+    } catch {
+      // If the status endpoint is unreachable, don't lock the user out —
+      // the regular auth/connection error handling takes over.
+      setMaintenance((prev) => prev ?? { active: false, message: '', retryAfterSeconds: 30 });
+    } finally {
+      setMaintenanceChecked(true);
+    }
+  }, []);
+
   useEffect(() => {
+    checkMaintenance();
+    const intervalId = window.setInterval(checkMaintenance, 20000);
+    return () => window.clearInterval(intervalId);
+  }, [checkMaintenance]);
+
+  useEffect(() => {
+    if (maintenance?.active) {
+      abortCurrentRequest();
+      setIsLoading(false);
+    }
+  }, [maintenance?.active, abortCurrentRequest]);
+
+  // Check authentication once maintenance mode is known to be off, so a
+  // maintenance 503 is not mistaken for an unauthenticated session.
+  useEffect(() => {
+    if (!maintenanceChecked || maintenance?.active) return;
     const checkAuth = async () => {
       try {
         const data = await api.getMe();
@@ -170,7 +205,7 @@ function App() {
       }
     };
     checkAuth();
-  }, []);
+  }, [maintenanceChecked, maintenance?.active]);
 
   const handleLogin = async (email, password) => {
     const data = await api.login(email, password);
@@ -1298,6 +1333,32 @@ function App() {
       }
     }
   };
+
+  // Wait for the maintenance status before rendering anything else so that
+  // users never see (and cannot interact with) the app during maintenance.
+  if (!maintenanceChecked) {
+    return (
+      <div className={`app ${theme}`}>
+        <div className="login-container">
+          <div className="login-card" style={{ textAlign: 'center' }}>
+            <p>{t('checkingAuth')}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (maintenance?.active) {
+    return (
+      <MaintenancePage
+        theme={theme}
+        t={t}
+        message={maintenance.message}
+        onRetry={checkMaintenance}
+        logoUrl={logoUrl}
+      />
+    );
+  }
 
   // Early route: /share/{token} — standalone shared answer page, no auth needed
   const shareMatch = typeof window !== 'undefined'

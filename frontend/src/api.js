@@ -115,6 +115,21 @@ export const api = {
   },
 
   /**
+   * Get the current maintenance status. This endpoint stays reachable while
+   * the rest of the API is blocked, so the UI can leave maintenance on its own.
+   */
+  async getMaintenanceStatus() {
+    const response = await fetch(`${API_BASE}/api/maintenance`, {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      throw new Error('Failed to get maintenance status');
+    }
+    return response.json();
+  },
+
+  /**
    * List available council and chairman models.
    */
   async listModels() {

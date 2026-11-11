@@ -31,6 +31,14 @@ def _parse_float_env(name: str, default: float) -> float:
         return default
 
 
+def _parse_bool_env(name: str, default: bool) -> bool:
+    """Parse a boolean env var, accepting common truthy/falsy spellings."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _normalize_root_path(value: str | None) -> str:
     """Normalize a path prefix such as /council for mounting under subpaths."""
     if not value:
@@ -148,6 +156,15 @@ BACKEND_ROOT_PATH = _normalize_root_path(
     or os.getenv("COUNCIL_BASE_PATH")
     or os.getenv("BASE_PATH")
     or os.getenv("BASE_URL")
+)
+
+# Maintenance mode: when enabled, every API request is answered with 503
+# and the frontend shows a maintenance screen. Disable with MAINTENANCE_MODE=false.
+MAINTENANCE_MODE = _parse_bool_env("MAINTENANCE_MODE", True)
+MAINTENANCE_MESSAGE = (os.getenv("MAINTENANCE_MESSAGE") or "").strip()
+MAINTENANCE_RETRY_AFTER_SECONDS = max(
+    1,
+    int(_parse_float_env("MAINTENANCE_RETRY_AFTER_SECONDS", 30.0)),
 )
 
 # MongoDB configuration

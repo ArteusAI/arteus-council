@@ -145,6 +145,12 @@ export const translations = {
     attachmentPdfNoText: 'Could not extract text from PDF "{name}". It may be a scanned document.',
     attachmentPdfPassword: 'PDF "{name}" is password-protected.',
     dropHere: 'Drop .md, .txt or .pdf files here',
+    maintenanceBadge: 'Maintenance',
+    maintenanceTitle: 'We will be back soon',
+    maintenanceText:
+      'The council is taking a short break while we update things. Thanks for your patience — please check back in a little while.',
+    maintenanceNote: 'This page checks the status automatically.',
+    maintenanceRetry: 'Check again',
   },
   ru: {
     appName: 'Дружина Артеус',
@@ -291,6 +297,12 @@ export const translations = {
     attachmentPdfNoText: 'Не удалось извлечь текст из PDF «{name}». Возможно, это скан.',
     attachmentPdfPassword: 'PDF «{name}» запаролен.',
     dropHere: 'Брось .md, .txt или .pdf файлы сюда',
+    maintenanceBadge: 'Технические работы',
+    maintenanceTitle: 'Скоро вернёмся',
+    maintenanceText:
+      'Дружина ненадолго ушла на обновление. Спасибо за терпение — загляните чуть позже, мы уже почти всё доделали.',
+    maintenanceNote: 'Страница проверяет статус автоматически.',
+    maintenanceRetry: 'Проверить снова',
   },
   el: {
     appName: 'Arteus Council',
@@ -437,6 +449,12 @@ export const translations = {
     attachmentPdfNoText: 'Αδυναμία εξαγωγής κειμένου από το PDF "{name}". Μπορεί να είναι σκαναρισμένο.',
     attachmentPdfPassword: 'Το PDF "{name}" προστατεύεται με κωδικό.',
     dropHere: 'Ρίξε αρχεία .md, .txt ή .pdf εδώ',
+    maintenanceBadge: 'Συντήρηση',
+    maintenanceTitle: 'Επιστρέφουμε σύντομα',
+    maintenanceText:
+      'Το συμβούλιο κάνει ένα σύντομο διάλειμμα όσο ενημερώνουμε το σύστημα. Ευχαριστούμε για την υπομονή σας — ελάτε ξανά σε λίγο.',
+    maintenanceNote: 'Η σελίδα ελέγχει την κατάσταση αυτόματα.',
+    maintenanceRetry: 'Έλεγχος ξανά',
   },
 };
 

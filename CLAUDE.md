@@ -119,6 +119,11 @@ All backend modules use relative imports (e.g., `from .config import ...`) not a
 - Frontend: 5173 (Vite default)
 - Update both `backend/main.py` and `frontend/src/api.js` if changing
 
+### Maintenance Mode
+- `MAINTENANCE_MODE` defaults to `true`; while enabled, the middleware in `backend/main.py` answers every route with HTTP 503 and `Retry-After`, except `GET /api/maintenance`.
+- The frontend polls `/api/maintenance` on load and every 20 seconds. When active it renders `components/MaintenancePage.jsx` and never mounts the app (shared links included).
+- Disable with `MAINTENANCE_MODE=false` and restart the backend; the open page switches back automatically. `MAINTENANCE_MESSAGE` sets custom text.
+
 ### Markdown Rendering
 All ReactMarkdown components must be wrapped in `<div className="markdown-content">` for proper spacing. This class is defined globally in `index.css`.
 

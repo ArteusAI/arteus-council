@@ -105,6 +105,33 @@ npm run dev
 
 Then open http://localhost:5173 in your browser.
 
+## Maintenance Mode
+
+The app ships with maintenance mode **enabled** by default. While it is on:
+
+- every backend API request returns HTTP `503` with a JSON body (`maintenance: true`)
+- the frontend shows a maintenance screen instead of the app (including shared links)
+- the only reachable endpoint is `GET /api/maintenance`
+
+To turn the app back on, add the flag to `.env` and restart the backend:
+
+```bash
+MAINTENANCE_MODE=false
+```
+
+or pass it to Docker Compose:
+
+```bash
+MAINTENANCE_MODE=false docker compose up -d
+```
+
+Related settings:
+
+- `MAINTENANCE_MESSAGE` — optional custom text shown on the maintenance page
+- `MAINTENANCE_RETRY_AFTER_SECONDS` — value for the `Retry-After` header and the auto-check hint (default `30`)
+
+The maintenance page polls `/api/maintenance` every 20 seconds, so it switches back to the app automatically after the backend is restarted with maintenance disabled.
+
 ## Tech Stack
 
 - **Backend:** FastAPI (Python 3.10+), async httpx, OpenRouter API

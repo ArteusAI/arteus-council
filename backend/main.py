@@ -6,7 +6,7 @@ import json
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 
 # Configure logging
 logging.basicConfig(
@@ -15,7 +15,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("llm-council")
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
@@ -41,6 +41,9 @@ from .config import (
     PERSONALIZATION_TEMPLATES,
     COUNCIL_IDENTITY_TEMPLATES,
     MAX_USER_QUESTIONS_PER_CONVERSATION,
+    MAINTENANCE_MESSAGE,
+    MAINTENANCE_MODE,
+    MAINTENANCE_RETRY_AFTER_SECONDS,
 )
 from .attachments import (
     build_agora_attachment_block,
@@ -75,6 +78,46 @@ app = FastAPI(
     openapi_url=_prefixed_path("/openapi.json"),
 )
 router = APIRouter()
+
+
+def _path_without_root(path: str) -> str:
+    """Strip the configured subpath prefix (e.g. /council) from a request path."""
+    if BACKEND_ROOT_PATH and (
+        path == BACKEND_ROOT_PATH or path.startswith(f"{BACKEND_ROOT_PATH}/")
+    ):
+        return path[len(BACKEND_ROOT_PATH):] or "/"
+    return path
+
+
+# Maintenance guard. It must be registered BEFORE CORS so that CORS remains the
+# outermost middleware and adds its headers to the 503 responses as well.
+@app.middleware("http")
+async def maintenance_guard(request: Request, call_next):
+    """Reject every request with 503 while the service is under maintenance."""
+    if not MAINTENANCE_MODE:
+        return await call_next(request)
+
+    path = _path_without_root(request.url.path).rstrip("/") or "/"
+    # Keep the status endpoint reachable so the frontend can detect the end of
+    # maintenance, and let CORS preflight requests through.
+    if path == "/api/maintenance" or request.method == "OPTIONS":
+        return await call_next(request)
+
+    logger.debug("Maintenance mode: blocked %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "Service is under maintenance",
+            "maintenance": True,
+            "message": MAINTENANCE_MESSAGE or None,
+            "retry_after_seconds": MAINTENANCE_RETRY_AFTER_SECONDS,
+        },
+        headers={
+            "Retry-After": str(MAINTENANCE_RETRY_AFTER_SECONDS),
+            "Cache-Control": "no-store",
+        },
+    )
+
 
 # Enable CORS for browser clients (configured via .env CORS_ALLOW_ORIGINS)
 app.add_middleware(
@@ -159,6 +202,17 @@ class CouncilSettingsResponse(BaseModel):
     template_id: str
     base_system_prompt: str
     base_system_prompt_id: str
+
+
+@router.get("/api/maintenance")
+async def maintenance_status(response: Response):
+    """Public maintenance status endpoint (reachable even in maintenance mode)."""
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "maintenance": MAINTENANCE_MODE,
+        "message": MAINTENANCE_MESSAGE or None,
+        "retry_after_seconds": MAINTENANCE_RETRY_AFTER_SECONDS,
+    }
 
 
 @router.get("/")
